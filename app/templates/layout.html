@@ -41,7 +41,10 @@
 </style>
 </head>
 <body>
-<h1>▸ eidos-mail — daniel@eidosagi.com</h1>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+  <h1 style="margin-bottom:0;">▸ eidos-mail — daniel@eidosagi.com</h1>
+  <a href="/auth/logout" style="color:var(--muted);font-size:0.75rem;text-decoration:none;border:1px solid var(--border);padding:0.3rem 0.6rem;border-radius:3px;">logout</a>
+</div>
 <div class="tabs">
   <button class="tab active" onclick="showTab('inbox', this)">inbox</button>
   <button class="tab" onclick="showTab('search', this)">search</button>
@@ -56,6 +59,13 @@ function showTab(tab, el) {
   el.classList.add('active');
   htmx.ajax('GET', '/' + tab, {target: '#content', swap: 'innerHTML'});
 }
+// Handle session expiry: if an HTMX response is a redirect to login, do a full-page redirect
+document.body.addEventListener('htmx:beforeSwap', function(evt) {
+  if (evt.detail.xhr.responseURL && evt.detail.xhr.responseURL.includes('/auth/login')) {
+    window.location.href = '/auth/login';
+    evt.detail.shouldSwap = false;
+  }
+});
 </script>
 </body>
 </html>

@@ -4,15 +4,17 @@ import smtplib
 from email.mime.text import MIMEText
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Query, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from pathlib import Path
 
-from app.config import EMAIL_ADDRESS, EMAIL_PASSWORD, SMTP_HOST, SMTP_PORT
+from app.config import EMAIL_ADDRESS, EMAIL_PASSWORD, SMTP_HOST, SMTP_PORT, SESSION_SECRET
 from app.database import init_pool, close_pool, get_pool
 from app.sync import sync_emails
 from app.embeddings import encode_query
+from app.auth import router as auth_router, AuthRequired, require_web_auth, require_api_auth
 
 
 @asynccontextmanager
@@ -23,7 +25,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="eidos-mail", lifespan=lifespan)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET or "dev-secret-change-me", https_only=False)
+app.include_router(auth_router)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+@app.exception_handler(AuthRequired)
+async def auth_required_handler(request: Request, exc: AuthRequired):
+    return RedirectResponse(url="/auth/login", status_code=302)
 
 
 def snippet(text: str | None, max_len: int = 80) -> str:
@@ -52,15 +61,15 @@ async def health():
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request, email: str = Depends(require_web_auth)):
     inbox_html = await _inbox_html()
     return templates.TemplateResponse("layout.html", {
-        "request": request, "content": inbox_html
+        "request": request, "content": inbox_html, "user_email": email
     })
 
 
 @app.get("/inbox", response_class=HTMLResponse)
-async def inbox():
+async def inbox(_email: str = Depends(require_web_auth)):
     return HTMLResponse(await _inbox_html())
 
 
@@ -100,7 +109,7 @@ async def _inbox_html() -> str:
 
 
 @app.get("/email/{email_id}", response_class=HTMLResponse)
-async def email_detail(email_id: int):
+async def email_detail(email_id: int, _email: str = Depends(require_web_auth)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -119,7 +128,7 @@ async def email_detail(email_id: int):
 
 
 @app.get("/search", response_class=HTMLResponse)
-async def search_page():
+async def search_page(_email: str = Depends(require_web_auth)):
     return HTMLResponse('''
 <div class="search-bar">
   <input type="text" name="q" id="search-input" placeholder="semantic search..."
@@ -132,7 +141,7 @@ async def search_page():
 
 
 @app.get("/search/results", response_class=HTMLResponse)
-async def search_results(q: str = Query("")):
+async def search_results(q: str = Query(""), _email: str = Depends(require_web_auth)):
     q = q.strip()
     if not q or len(q) < 2:
         return HTMLResponse("")
@@ -173,7 +182,7 @@ async def search_results(q: str = Query("")):
 
 
 @app.get("/compose", response_class=HTMLResponse)
-async def compose_page():
+async def compose_page(_email: str = Depends(require_web_auth)):
     return HTMLResponse('''
 <form hx-post="/send" hx-target="#send-result" hx-swap="innerHTML">
   <div class="form-group"><label>To</label><input type="text" name="to" required></div>
@@ -187,7 +196,7 @@ async def compose_page():
 
 
 @app.post("/send", response_class=HTMLResponse)
-async def send_email_htmx(request: Request):
+async def send_email_htmx(request: Request, _email: str = Depends(require_web_auth)):
     form = await request.form()
     to = str(form.get("to", "")).strip()
     subject = str(form.get("subject", "")).strip()
@@ -216,14 +225,14 @@ async def send_email_htmx(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/sync")
-async def api_sync():
+async def api_sync(_email: str = Depends(require_api_auth)):
     """Trigger IMAP sync."""
     stats = await sync_emails()
     return JSONResponse({"status": "ok", "stats": stats})
 
 
 @app.get("/api/search")
-async def api_search(q: str = Query(..., min_length=2)):
+async def api_search(q: str = Query(..., min_length=2), _email: str = Depends(require_api_auth)):
     vec_str = encode_query(q)
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -241,7 +250,7 @@ async def api_search(q: str = Query(..., min_length=2)):
 
 
 @app.get("/api/emails")
-async def api_emails(recent: int = Query(20, ge=1, le=100)):
+async def api_emails(recent: int = Query(20, ge=1, le=100), _email: str = Depends(require_api_auth)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -254,7 +263,7 @@ async def api_emails(recent: int = Query(20, ge=1, le=100)):
 
 
 @app.get("/api/emails/{email_id}")
-async def api_email(email_id: int):
+async def api_email(email_id: int, _email: str = Depends(require_api_auth)):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -267,7 +276,7 @@ async def api_email(email_id: int):
 
 
 @app.post("/api/send")
-async def api_send(request: Request):
+async def api_send(request: Request, _email: str = Depends(require_api_auth)):
     data = await request.json()
     to = data.get("to", "").strip()
     subject = data.get("subject", "").strip()
