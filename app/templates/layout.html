@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eidos-mail — daniel@eidosagi.com</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
+  :root { --bg: #0a0a0a; --fg: #e0e0e0; --accent: #4fc3f7; --border: #333; --card: #141414; --muted: #888; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--fg); padding: 1rem; max-width: 960px; margin: 0 auto; }
+  h1 { color: var(--accent); font-size: 1.1rem; margin-bottom: 1rem; }
+  .tabs { display: flex; gap: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+  .tab { padding: 0.5rem 1rem; cursor: pointer; border: 1px solid transparent; border-bottom: none; color: var(--muted); background: none; font-family: inherit; font-size: 0.85rem; }
+  .tab:hover, .tab.active { color: var(--accent); border-color: var(--border); background: var(--card); }
+  input, textarea, select { font-family: inherit; font-size: 0.85rem; background: var(--card); color: var(--fg); border: 1px solid var(--border); padding: 0.4rem 0.6rem; width: 100%; border-radius: 3px; }
+  textarea { min-height: 120px; resize: vertical; }
+  button, .btn { font-family: inherit; font-size: 0.85rem; background: var(--accent); color: #000; border: none; padding: 0.4rem 1rem; cursor: pointer; border-radius: 3px; font-weight: bold; }
+  button:hover { opacity: 0.8; }
+  .email-row { padding: 0.6rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .email-row:hover { background: var(--card); }
+  .email-from { color: var(--accent); font-size: 0.8rem; }
+  .email-subject { font-size: 0.85rem; margin: 0.2rem 0; }
+  .email-date { color: var(--muted); font-size: 0.75rem; }
+  .email-snippet { color: var(--muted); font-size: 0.75rem; max-height: 1.2em; overflow: hidden; }
+  .email-detail { background: var(--card); border: 1px solid var(--border); padding: 1rem; margin-top: 0.5rem; border-radius: 3px; }
+  .email-detail pre { white-space: pre-wrap; font-size: 0.8rem; margin-top: 0.5rem; color: var(--fg); }
+  .email-detail .meta { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.5rem; }
+  .search-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .search-bar input { flex: 1; }
+  .form-group { margin-bottom: 0.6rem; }
+  .form-group label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .flash { padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 3px; font-size: 0.8rem; }
+  .flash-ok { background: #1b3a1b; color: #4caf50; border: 1px solid #2e7d32; }
+  .flash-err { background: #3a1b1b; color: #ef5350; border: 1px solid #c62828; }
+  .stats { color: var(--muted); font-size: 0.75rem; margin-bottom: 0.5rem; }
+  .htmx-indicator { display: none; color: var(--accent); font-size: 0.8rem; }
+  .htmx-request .htmx-indicator { display: inline; }
+  .sync-btn { background: none; color: var(--muted); border: 1px solid var(--border); padding: 0.3rem 0.6rem; font-size: 0.75rem; margin-left: 0.5rem; }
+  .sync-btn:hover { color: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>▸ eidos-mail — daniel@eidosagi.com</h1>
+<div class="tabs">
+  <button class="tab active" onclick="showTab('inbox', this)">inbox</button>
+  <button class="tab" onclick="showTab('search', this)">search</button>
+  <button class="tab" onclick="showTab('compose', this)">compose</button>
+</div>
+<div id="content">
+  {{ content | safe }}
+</div>
+<script>
+function showTab(tab, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  htmx.ajax('GET', '/' + tab, {target: '#content', swap: 'innerHTML'});
+}
+</script>
+</body>
+</html>
