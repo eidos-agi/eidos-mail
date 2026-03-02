@@ -8,12 +8,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-IMAP_HOST = os.environ.get("IMAP_HOST", "imap.migadu.com")
-IMAP_PORT = int(os.environ.get("IMAP_PORT", "993"))
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.migadu.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
-EMAIL_ADDRESS = os.environ.get("EMAIL_ADDRESS", "")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
+# Vault (per-user credential storage — replaces single-user EMAIL_ADDRESS/EMAIL_PASSWORD)
+VAULT_URL = os.environ.get("VAULT_URL", "https://vault.eidosagi.com")
+VAULT_SERVICE_TOKEN = os.environ.get("VAULT_SERVICE_TOKEN", "")
 
 # OIDC / SSO
 OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "https://sso.eidosagi.com/application/o/eidos-mail/")

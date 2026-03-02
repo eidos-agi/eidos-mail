@@ -1,0 +1,7 @@
+<div class="search-bar">
+  <input type="text" name="q" id="search-input" placeholder="semantic search..."
+    hx-get="/search/results" hx-target="#search-results" hx-trigger="keyup changed delay:400ms"
+    hx-include="this" />
+  <span class="htmx-indicator">searching...</span>
+</div>
+<div id="search-results"></div>

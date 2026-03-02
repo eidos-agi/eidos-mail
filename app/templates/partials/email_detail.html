@@ -1,0 +1,8 @@
+<div class="email-detail">
+  <div class="meta"><strong>From:</strong> {{ email.from_addr }}</div>
+  <div class="meta"><strong>To:</strong> {{ email.to_addrs }}</div>
+  {% if email.cc_addrs %}<div class="meta"><strong>Cc:</strong> {{ email.cc_addrs }}</div>{% endif %}
+  <div class="meta"><strong>Date:</strong> {{ email.date_sent }}</div>
+  <div class="meta"><strong>Subject:</strong> {{ email.subject }}</div>
+  <pre>{{ email.body_text }}</pre>
+</div>

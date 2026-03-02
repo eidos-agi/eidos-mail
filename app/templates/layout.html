@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>eidos-mail — daniel@eidosagi.com</title>
+<title>eidos-mail — {{ user_email }}</title>
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <style>
   :root { --bg: #0a0a0a; --fg: #e0e0e0; --accent: #4fc3f7; --border: #333; --card: #141414; --muted: #888; }
@@ -38,17 +38,23 @@
   .htmx-request .htmx-indicator { display: inline; }
   .sync-btn { background: none; color: var(--muted); border: 1px solid var(--border); padding: 0.3rem 0.6rem; font-size: 0.75rem; margin-left: 0.5rem; }
   .sync-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .pagination { display: flex; gap: 1rem; align-items: center; justify-content: center; padding: 0.8rem 0; color: var(--muted); font-size: 0.8rem; }
+  .pagination a { color: var(--accent); text-decoration: none; }
+  .pagination a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-  <h1 style="margin-bottom:0;">▸ eidos-mail — daniel@eidosagi.com</h1>
-  <a href="/auth/logout" style="color:var(--muted);font-size:0.75rem;text-decoration:none;border:1px solid var(--border);padding:0.3rem 0.6rem;border-radius:3px;">logout</a>
+  <h1 style="margin-bottom:0;">▸ eidos-mail — {{ user_email }}</h1>
+  <div>
+    <span style="color:var(--muted);font-size:0.75rem;">{{ user_email }}</span>
+    <a href="/auth/logout" style="color:var(--muted);font-size:0.75rem;text-decoration:none;border:1px solid var(--border);padding:0.3rem 0.6rem;border-radius:3px;margin-left:0.5rem;">logout</a>
+  </div>
 </div>
 <div class="tabs">
-  <button class="tab active" onclick="showTab('inbox', this)">inbox</button>
-  <button class="tab" onclick="showTab('search', this)">search</button>
-  <button class="tab" onclick="showTab('compose', this)">compose</button>
+  <button class="tab{% if active_tab == 'inbox' %} active{% endif %}" onclick="showTab('inbox', this)">inbox</button>
+  <button class="tab{% if active_tab == 'search' %} active{% endif %}" onclick="showTab('search', this)">search</button>
+  <button class="tab{% if active_tab == 'compose' %} active{% endif %}" onclick="showTab('compose', this)">compose</button>
 </div>
 <div id="content">
   {{ content | safe }}
@@ -59,7 +65,6 @@ function showTab(tab, el) {
   el.classList.add('active');
   htmx.ajax('GET', '/' + tab, {target: '#content', swap: 'innerHTML'});
 }
-// Handle session expiry: if an HTMX response is a redirect to login, do a full-page redirect
 document.body.addEventListener('htmx:beforeSwap', function(evt) {
   if (evt.detail.xhr.responseURL && evt.detail.xhr.responseURL.includes('/auth/login')) {
     window.location.href = '/auth/login';

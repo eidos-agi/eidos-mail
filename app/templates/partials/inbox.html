@@ -1,0 +1,17 @@
+<div class="stats">{{ total }} emails{% if total > per_page %} (page {{ page }} of {{ total_pages }}){% endif %}
+  <button class="sync-btn" hx-post="/sync" hx-target="#sync-status" hx-swap="innerHTML">sync</button>
+  <span id="sync-status" class="htmx-indicator">syncing...</span>
+</div>
+{% for e in emails %}
+{% include "partials/email_row.html" %}
+{% endfor %}
+{% if not emails %}
+<div style="color:var(--muted);padding:1rem;">No emails. Click sync to fetch.</div>
+{% endif %}
+{% if total > per_page %}
+<div class="pagination">
+  {% if page > 1 %}<a href="#" hx-get="/inbox?page={{ page - 1 }}" hx-target="#content" hx-swap="innerHTML">&laquo; prev</a>{% endif %}
+  <span class="page-info">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}<a href="#" hx-get="/inbox?page={{ page + 1 }}" hx-target="#content" hx-swap="innerHTML">next &raquo;</a>{% endif %}
+</div>
+{% endif %}

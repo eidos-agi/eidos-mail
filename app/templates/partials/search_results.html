@@ -1,0 +1,6 @@
+{% for e in emails %}
+{% include "partials/email_row.html" %}
+{% endfor %}
+{% if not emails %}
+<div style="color:var(--muted);padding:1rem;">No results.</div>
+{% endif %}

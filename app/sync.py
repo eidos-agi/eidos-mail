@@ -1,4 +1,4 @@
-"""IMAP sync: fetch emails from Migadu, store in Postgres, generate embeddings."""
+"""IMAP sync: fetch emails per-user, store in Postgres, generate embeddings."""
 
 import imaplib
 import email
@@ -6,9 +6,9 @@ import email.policy
 from email.utils import parsedate_to_datetime
 from datetime import datetime
 
-from app.config import IMAP_HOST, IMAP_PORT, EMAIL_ADDRESS, EMAIL_PASSWORD
 from app.database import get_pool
 from app.embeddings import encode
+from app.vault_client import get_mail_password, get_mail_account
 
 
 def extract_body(msg) -> str:
@@ -54,10 +54,13 @@ def parse_date(msg) -> datetime | None:
         return None
 
 
-def fetch_emails_imap(folder: str = "INBOX") -> list[tuple[int, bytes]]:
+def fetch_emails_imap(
+    imap_host: str, imap_port: int, email_addr: str, password: str,
+    folder: str = "INBOX",
+) -> list[tuple[int, bytes]]:
     """Connect to IMAP, fetch all emails, return list of (uid, raw_bytes)."""
-    imap = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
-    imap.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+    imap = imaplib.IMAP4_SSL(imap_host, imap_port)
+    imap.login(email_addr, password)
     imap.select(folder, readonly=True)
 
     _, data = imap.uid("search", None, "ALL")
@@ -76,69 +79,116 @@ def fetch_emails_imap(folder: str = "INBOX") -> list[tuple[int, bytes]]:
     return results
 
 
-async def sync_emails(folders: list[str] | None = None) -> dict:
-    """Full sync: IMAP fetch -> Postgres insert -> vector embeddings."""
+async def sync_emails_for_user(
+    user_email: str, folders: list[str] | None = None,
+) -> dict:
+    """Per-user sync: look up credentials, IMAP fetch, insert with owner_email."""
     if folders is None:
         folders = ["INBOX", "Sent"]
 
+    # Look up account config and password
+    account = await get_mail_account(user_email)
+    if not account:
+        return {"error": f"No mail account configured for {user_email}"}
+
+    password = await get_mail_password(user_email)
+    if not password:
+        return {"error": f"Could not fetch password from vault for {user_email}"}
+
     pool = await get_pool()
+
+    # Mark sync in progress
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE mail_accounts SET sync_status = 'syncing' "
+            "WHERE email = $1 AND deleted_at IS NULL",
+            user_email,
+        )
+
     stats = {"folders": {}, "total_new": 0}
 
-    # Get already-synced UIDs
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT uid FROM emails WHERE deleted_at IS NULL"
-        )
-        synced_uids = {r["uid"] for r in rows}
+    try:
+        # Get already-synced UIDs for this user
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT uid, folder FROM emails "
+                "WHERE owner_email = $1 AND deleted_at IS NULL",
+                user_email,
+            )
+            synced = {(r["uid"], r["folder"]) for r in rows}
 
-    new_email_ids = []
+        new_email_ids = []
 
-    for folder in folders:
-        try:
-            emails = fetch_emails_imap(folder)
-        except Exception as e:
-            stats["folders"][folder] = {"error": str(e)}
-            continue
-
-        new_count = 0
-        for uid, raw in emails:
-            if uid in synced_uids:
+        for folder in folders:
+            try:
+                emails_raw = fetch_emails_imap(
+                    account["imap_host"], account["imap_port"],
+                    user_email, password, folder,
+                )
+            except Exception as e:
+                stats["folders"][folder] = {"error": str(e)}
                 continue
 
-            msg = email.message_from_bytes(raw, policy=email.policy.default)
-            body = extract_body(msg)
-            date_sent = parse_date(msg)
+            new_count = 0
+            for uid, raw in emails_raw:
+                if (uid, folder) in synced:
+                    continue
 
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """INSERT INTO emails
-                        (uid, message_id, from_addr, to_addrs, cc_addrs,
-                         subject, date_sent, body_text, folder)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                    ON CONFLICT (uid) DO NOTHING
-                    RETURNING id""",
-                    uid,
-                    msg.get("Message-ID", ""),
-                    msg.get("From", ""),
-                    msg.get("To", ""),
-                    msg.get("Cc", ""),
-                    msg.get("Subject", ""),
-                    date_sent,
-                    body,
-                    folder,
-                )
-                if row:
-                    new_email_ids.append(row["id"])
-                    new_count += 1
-                    synced_uids.add(uid)
+                msg = email.message_from_bytes(raw, policy=email.policy.default)
+                body = extract_body(msg)
+                date_sent = parse_date(msg)
 
-        stats["folders"][folder] = {"fetched": len(emails), "new": new_count}
-        stats["total_new"] += new_count
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """INSERT INTO emails
+                            (uid, message_id, from_addr, to_addrs, cc_addrs,
+                             subject, date_sent, body_text, folder, owner_email)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        ON CONFLICT (owner_email, uid, folder) DO NOTHING
+                        RETURNING id""",
+                        uid,
+                        msg.get("Message-ID", ""),
+                        msg.get("From", ""),
+                        msg.get("To", ""),
+                        msg.get("Cc", ""),
+                        msg.get("Subject", ""),
+                        date_sent,
+                        body,
+                        folder,
+                        user_email,
+                    )
+                    if row:
+                        new_email_ids.append(row["id"])
+                        new_count += 1
+                        synced.add((uid, folder))
 
-    # Generate embeddings for new emails
-    if new_email_ids:
-        await embed_emails(new_email_ids)
-        stats["embedded"] = len(new_email_ids)
+            stats["folders"][folder] = {"fetched": len(emails_raw), "new": new_count}
+            stats["total_new"] += new_count
+
+        # Generate embeddings for new emails
+        if new_email_ids:
+            await embed_emails(new_email_ids)
+            stats["embedded"] = len(new_email_ids)
+
+        # Mark sync complete
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE mail_accounts SET sync_status = 'idle', "
+                "last_sync_at = NOW(), sync_error = NULL "
+                "WHERE email = $1 AND deleted_at IS NULL",
+                user_email,
+            )
+
+    except Exception as e:
+        # Mark sync error
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE mail_accounts SET sync_status = 'error', "
+                "sync_error = $2 "
+                "WHERE email = $1 AND deleted_at IS NULL",
+                user_email, str(e),
+            )
+        raise
 
     return stats
 
@@ -150,7 +200,7 @@ async def embed_emails(email_ids: list[int]):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT id, subject, body_text FROM emails
-            WHERE id = ANY($1)""",
+            WHERE id = ANY($1) AND deleted_at IS NULL""",
             email_ids,
         )
 
