@@ -1,5 +1,7 @@
-"""OIDC authentication for eidos-mail via Authentik SSO."""
+"""OIDC authentication for eidos-mail via Authentik SSO + eidos-vault JWTs."""
 
+import base64
+import json
 import time
 import httpx
 from authlib.integrations.starlette_client import OAuth
@@ -9,7 +11,7 @@ from fastapi.responses import RedirectResponse
 
 from app.config import (
     OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET,
-    OIDC_REDIRECT_URI, BASE_URL,
+    OIDC_REDIRECT_URI, BASE_URL, VAULT_URL,
 )
 
 
@@ -40,17 +42,21 @@ oauth.register(
 
 
 # ---------------------------------------------------------------------------
-# JWKS cache for bearer token validation
+# JWKS caches for bearer token validation (Authentik + eidos-vault)
 # ---------------------------------------------------------------------------
 
-_jwks_cache: dict = {"keys": [], "expires": 0}
+_authentik_jwks: dict = {"keys": [], "expires": 0}
+_vault_jwks: dict = {"keys": [], "expires": 0}
+
+VAULT_ISSUER = VAULT_URL.rstrip("/")  # https://vault.eidosagi.com
+_vault_jwks_url = f"{VAULT_ISSUER}/.well-known/jwks.json"
 
 
-async def _get_jwks() -> dict:
+async def _get_authentik_jwks() -> dict:
     """Fetch and cache JWKS from Authentik (1-hour TTL)."""
     now = time.time()
-    if _jwks_cache["keys"] and now < _jwks_cache["expires"]:
-        return _jwks_cache
+    if _authentik_jwks["keys"] and now < _authentik_jwks["expires"]:
+        return _authentik_jwks
 
     async with httpx.AsyncClient() as client:
         meta = (await client.get(_discovery_url)).json()
@@ -58,36 +64,83 @@ async def _get_jwks() -> dict:
         resp = await client.get(jwks_uri)
         jwks = resp.json()
 
-    _jwks_cache["keys"] = jwks.get("keys", [])
-    _jwks_cache["expires"] = now + 3600
-    return _jwks_cache
+    _authentik_jwks["keys"] = jwks.get("keys", [])
+    _authentik_jwks["expires"] = now + 3600
+    return _authentik_jwks
+
+
+async def _get_vault_jwks() -> dict:
+    """Fetch and cache JWKS from eidos-vault (1-hour TTL)."""
+    now = time.time()
+    if _vault_jwks["keys"] and now < _vault_jwks["expires"]:
+        return _vault_jwks
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(_vault_jwks_url)
+        jwks = resp.json()
+
+    _vault_jwks["keys"] = jwks.get("keys", [])
+    _vault_jwks["expires"] = now + 3600
+    return _vault_jwks
+
+
+def _peek_jwt_issuer(token: str) -> str | None:
+    """Extract issuer from JWT payload without verification (for routing)."""
+    try:
+        payload = token.split(".")[1]
+        # Add padding
+        payload += "=" * (4 - len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        return data.get("iss")
+    except Exception:
+        return None
 
 
 async def _validate_bearer(token: str) -> str:
-    """Validate a bearer JWT against Authentik JWKS. Returns email or raises."""
+    """Validate a bearer JWT against the appropriate JWKS. Returns email or raises."""
     from authlib.jose import jwt as authlib_jwt, JoseError
 
-    jwks = await _get_jwks()
-    try:
-        claims = authlib_jwt.decode(token, {"keys": jwks["keys"]})
-        claims.validate()
-    except (JoseError, Exception) as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    issuer = _peek_jwt_issuer(token)
 
-    # Verify issuer and audience
-    if claims.get("iss") != OIDC_ISSUER.rstrip("/"):
-        raise HTTPException(status_code=401, detail="Invalid issuer")
-    aud = claims.get("aud")
-    if isinstance(aud, list):
-        if OIDC_CLIENT_ID not in aud:
+    if issuer == VAULT_ISSUER:
+        # Vault-issued JWT (from eidos CLI or service key exchange)
+        jwks = await _get_vault_jwks()
+        try:
+            claims = authlib_jwt.decode(token, {"keys": jwks["keys"]})
+            claims.validate()
+        except (JoseError, Exception) as e:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+        if claims.get("iss") != VAULT_ISSUER:
+            raise HTTPException(status_code=401, detail="Invalid issuer")
+
+        email = claims.get("email")
+        if not email:
+            raise HTTPException(status_code=401, detail="No email in token")
+        return email
+
+    else:
+        # Authentik OIDC JWT (default)
+        jwks = await _get_authentik_jwks()
+        try:
+            claims = authlib_jwt.decode(token, {"keys": jwks["keys"]})
+            claims.validate()
+        except (JoseError, Exception) as e:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+        if claims.get("iss") != OIDC_ISSUER.rstrip("/"):
+            raise HTTPException(status_code=401, detail="Invalid issuer")
+        aud = claims.get("aud")
+        if isinstance(aud, list):
+            if OIDC_CLIENT_ID not in aud:
+                raise HTTPException(status_code=401, detail="Invalid audience")
+        elif aud != OIDC_CLIENT_ID:
             raise HTTPException(status_code=401, detail="Invalid audience")
-    elif aud != OIDC_CLIENT_ID:
-        raise HTTPException(status_code=401, detail="Invalid audience")
 
-    email = claims.get("email")
-    if not email:
-        raise HTTPException(status_code=401, detail="No email in token")
-    return email
+        email = claims.get("email")
+        if not email:
+            raise HTTPException(status_code=401, detail="No email in token")
+        return email
 
 
 # ---------------------------------------------------------------------------
