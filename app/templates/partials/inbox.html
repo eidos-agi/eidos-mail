@@ -6,7 +6,7 @@
     <button class="sync-btn" :disabled="syncing"
       @click="syncing = true"
       hx-post="/sync" hx-target="#sync-status" hx-swap="innerHTML"
-      @htmx:after-swap.camel="syncing = false; setTimeout(() => htmx.ajax('GET', '/inbox?folder={{ active_folder }}' + (ike ? '&ike={{ ike_quadrant or '' }}' : ''), {target: '#content', swap: 'innerHTML'}), 1500)">
+      @htmx:after-swap.camel="syncing = false">
       <span x-show="!syncing">sync</span>
       <span x-show="syncing" x-cloak class="pulse">syncing...</span>
     </button>
@@ -29,10 +29,10 @@
   {% include "partials/ike.html" %}
   {% endif %}
 
-  <!-- Auto-sync on first load -->
-  <div x-init="syncing = true"
-    hx-post="/sync" hx-trigger="load" hx-target="#sync-status" hx-swap="innerHTML"
-    @htmx:after-swap.camel="syncing = false; setTimeout(() => htmx.ajax('GET', '/inbox?folder={{ active_folder }}' + (ike ? '&ike={{ ike_quadrant or '' }}' : ''), {target: '#content', swap: 'innerHTML'}), 1500)"
+  <!-- Auto-sync on first load (sync only, no refresh — avoids loop) -->
+  <div hx-post="/sync" hx-trigger="load" hx-target="#sync-status" hx-swap="innerHTML"
+    x-init="syncing = true"
+    @htmx:after-swap.camel="syncing = false"
     style="display:none;"></div>
 
   <div id="email-list">
