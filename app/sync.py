@@ -9,6 +9,7 @@ from datetime import datetime
 from app.database import get_pool
 from app.embeddings import encode
 from app.vault_client import get_mail_password, get_mail_account
+from app.scoring import score_email
 
 
 def extract_body(msg) -> str:
@@ -138,12 +139,18 @@ async def sync_emails_for_user(
                 body = extract_body(msg)
                 date_sent = parse_date(msg)
 
+                urgency, priority = score_email(
+                    msg.get("Subject", ""), body,
+                    msg.get("From", ""), date_sent,
+                )
+
                 async with pool.acquire() as conn:
                     row = await conn.fetchrow(
                         """INSERT INTO emails
                             (uid, message_id, from_addr, to_addrs, cc_addrs,
-                             subject, date_sent, body_text, folder, owner_email)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                             subject, date_sent, body_text, folder, owner_email,
+                             urgency, priority)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                         ON CONFLICT (owner_email, uid, folder) DO NOTHING
                         RETURNING id""",
                         uid,
@@ -156,6 +163,8 @@ async def sync_emails_for_user(
                         body,
                         folder,
                         user_email,
+                        urgency,
+                        priority,
                     )
                     if row:
                         new_email_ids.append(row["id"])

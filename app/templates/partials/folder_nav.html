@@ -1,0 +1,10 @@
+<div class="folder-nav" x-data="{ folder: '{{ active_folder }}' }">
+  {% for f in folders %}
+  <button class="folder-tab"
+    :class="{ active: folder === '{{ f.name }}' }"
+    @click="folder = '{{ f.name }}'"
+    hx-get="/inbox?folder={{ f.name }}" hx-target="#email-list" hx-swap="innerHTML">
+    {{ f.label }} <span class="folder-count">({{ f.count }})</span>
+  </button>
+  {% endfor %}
+</div>

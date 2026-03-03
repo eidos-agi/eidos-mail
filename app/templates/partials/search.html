@@ -1,7 +1,11 @@
-<div class="search-bar">
-  <input type="text" name="q" id="search-input" placeholder="semantic search..."
-    hx-get="/search/results" hx-target="#search-results" hx-trigger="keyup changed delay:400ms"
-    hx-include="this" />
-  <span class="htmx-indicator">searching...</span>
+<div x-data="{ searching: false }">
+  <div class="search-bar">
+    <input type="text" name="q" id="search-input" placeholder="semantic search..."
+      hx-get="/search/results" hx-target="#search-results" hx-trigger="keyup changed delay:400ms"
+      hx-include="this"
+      @htmx:before-request.camel="searching = true"
+      @htmx:after-swap.camel="searching = false" />
+    <span class="loading-indicator" x-show="searching" x-cloak x-transition>searching...</span>
+  </div>
+  <div id="search-results"></div>
 </div>
-<div id="search-results"></div>

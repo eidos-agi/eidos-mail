@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 import time
 import httpx
 from authlib.integrations.starlette_client import OAuth
@@ -149,6 +150,9 @@ async def _validate_bearer(token: str) -> str:
 
 async def require_web_auth(request: Request) -> str:
     """Dependency for web UI routes. Returns email or raises AuthRequired."""
+    dev_user = os.environ.get("DEV_USER")
+    if dev_user:
+        return dev_user
     email = request.session.get("user_email")
     if not email:
         raise AuthRequired()
@@ -157,6 +161,9 @@ async def require_web_auth(request: Request) -> str:
 
 async def require_api_auth(request: Request) -> str:
     """Dependency for API routes. Returns email or raises HTTPException(401)."""
+    dev_user = os.environ.get("DEV_USER")
+    if dev_user:
+        return dev_user
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")

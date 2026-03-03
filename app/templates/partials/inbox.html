@@ -1,17 +1,53 @@
-<div class="stats">{{ total }} emails{% if total > per_page %} (page {{ page }} of {{ total_pages }}){% endif %}
-  <button class="sync-btn" hx-post="/sync" hx-target="#sync-status" hx-swap="innerHTML">sync</button>
-  <span id="sync-status" class="htmx-indicator">syncing...</span>
+<div x-data="{ syncing: false, ike: {{ 'true' if ike_on else 'false' }} }">
+  {% include "partials/folder_nav.html" %}
+
+  <div class="stats">
+    {{ total }} emails{% if total > per_page %} (page {{ page }} of {{ total_pages }}){% endif %}
+    <button class="sync-btn" :disabled="syncing"
+      @click="syncing = true"
+      hx-post="/sync" hx-target="#sync-status" hx-swap="innerHTML"
+      @htmx:after-swap.camel="syncing = false; setTimeout(() => htmx.ajax('GET', '/inbox?folder={{ active_folder }}' + (ike ? '&ike={{ ike_quadrant or '' }}' : ''), {target: '#content', swap: 'innerHTML'}), 1500)">
+      <span x-show="!syncing">sync</span>
+      <span x-show="syncing" x-cloak class="pulse">syncing...</span>
+    </button>
+    <span id="sync-status"></span>
+    {% if unread_count > 0 %}
+    <button class="sync-btn"
+      @click="if(confirm('Mark all {{ unread_count }} unread emails as read?')) htmx.ajax('POST', '/mark-all-read?folder={{ active_folder }}', {target: '#content', swap: 'innerHTML'})">
+      read all ({{ unread_count }})
+    </button>
+    {% endif %}
+  </div>
+
+  <label class="ike-toggle">
+    <input type="checkbox" :checked="ike"
+      @change="ike = $el.checked; htmx.ajax('GET', '/inbox?folder={{ active_folder }}' + ($el.checked ? '&ike=all' : ''), {target: '#content', swap: 'innerHTML'})">
+    ike (eisenhower matrix)
+  </label>
+
+  {% if ike_on %}
+  {% include "partials/ike.html" %}
+  {% endif %}
+
+  <!-- Auto-sync on first load -->
+  <div x-init="syncing = true"
+    hx-post="/sync" hx-trigger="load" hx-target="#sync-status" hx-swap="innerHTML"
+    @htmx:after-swap.camel="syncing = false; setTimeout(() => htmx.ajax('GET', '/inbox?folder={{ active_folder }}' + (ike ? '&ike={{ ike_quadrant or '' }}' : ''), {target: '#content', swap: 'innerHTML'}), 1500)"
+    style="display:none;"></div>
+
+  <div id="email-list">
+    {% for e in emails %}
+    {% include "partials/email_row.html" %}
+    {% endfor %}
+    {% if not emails %}
+    <div style="color:var(--muted);padding:1rem;">No emails{% if ike_quadrant %} in this quadrant{% endif %}.</div>
+    {% endif %}
+    {% if total > per_page %}
+    <div class="pagination">
+      {% if page > 1 %}<a href="#" hx-get="/inbox?folder={{ active_folder }}&page={{ page - 1 }}{% if ike_on %}&ike={{ ike_quadrant or 'all' }}{% endif %}" hx-target="#content" hx-swap="innerHTML">&laquo; prev</a>{% endif %}
+      <span class="page-info">{{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}<a href="#" hx-get="/inbox?folder={{ active_folder }}&page={{ page + 1 }}{% if ike_on %}&ike={{ ike_quadrant or 'all' }}{% endif %}" hx-target="#content" hx-swap="innerHTML">next &raquo;</a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
-{% for e in emails %}
-{% include "partials/email_row.html" %}
-{% endfor %}
-{% if not emails %}
-<div style="color:var(--muted);padding:1rem;">No emails. Click sync to fetch.</div>
-{% endif %}
-{% if total > per_page %}
-<div class="pagination">
-  {% if page > 1 %}<a href="#" hx-get="/inbox?page={{ page - 1 }}" hx-target="#content" hx-swap="innerHTML">&laquo; prev</a>{% endif %}
-  <span class="page-info">{{ page }} / {{ total_pages }}</span>
-  {% if page < total_pages %}<a href="#" hx-get="/inbox?page={{ page + 1 }}" hx-target="#content" hx-swap="innerHTML">next &raquo;</a>{% endif %}
-</div>
-{% endif %}

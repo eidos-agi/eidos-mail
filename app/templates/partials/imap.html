@@ -1,0 +1,55 @@
+<div class="diag-section">
+  <h2 class="diag-title">IMAP Diagnostics</h2>
+
+  <div class="diag-card">
+    <div class="diag-label">Connection</div>
+    <div class="diag-value">
+      {% if connected %}
+      <span style="color:#4caf50;">connected</span> — {{ host }}:{{ port }}
+      {% else %}
+      <span style="color:#ef5350;">failed</span>{% if error %} — {{ error }}{% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  {% if connected %}
+  <div class="diag-card">
+    <div class="diag-label">Server Folders</div>
+    <div class="diag-value">
+      {% for f in imap_folders %}
+      <div class="diag-folder-row">{{ f.name }} <span style="color:var(--muted);">({{ f.count }} messages)</span></div>
+      {% endfor %}
+      {% if not imap_folders %}
+      <span style="color:var(--muted);">No folders found</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="diag-card">
+    <div class="diag-label">Account</div>
+    <div class="diag-value">
+      {% if account %}
+      <div>Email: {{ account.email }}</div>
+      <div>Display: {{ account.display_name or '—' }}</div>
+      <div>IMAP: {{ account.imap_host }}:{{ account.imap_port }}</div>
+      <div>SMTP: {{ account.smtp_host }}:{{ account.smtp_port }}</div>
+      {% else %}
+      <span style="color:#ef5350;">No mail account configured</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="diag-card">
+    <div class="diag-label">Sync Status</div>
+    <div class="diag-value">
+      {% if sync_info %}
+      <div>Status: <span style="color:{% if sync_info.status == 'idle' %}#4caf50{% elif sync_info.status == 'syncing' %}var(--accent){% else %}#ef5350{% endif %};">{{ sync_info.status }}</span></div>
+      <div>Last sync: {{ sync_info.last_sync or 'never' }}</div>
+      {% if sync_info.error %}<div style="color:#ef5350;">Error: {{ sync_info.error }}</div>{% endif %}
+      {% else %}
+      <span style="color:var(--muted);">No sync data</span>
+      {% endif %}
+    </div>
+  </div>
+</div>

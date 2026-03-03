@@ -1,9 +1,36 @@
-<form hx-post="/send" hx-target="#send-result" hx-swap="innerHTML">
-  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-  <div class="form-group"><label>To</label><input type="text" name="to" required></div>
-  <div class="form-group"><label>Subject</label><input type="text" name="subject"></div>
-  <div class="form-group"><label>Body</label><textarea name="body" rows="8"></textarea></div>
-  <button type="submit">send</button>
-  <span class="htmx-indicator">sending...</span>
-</form>
-<div id="send-result"></div>
+<div x-data="{ sending: false, saving: false }">
+  <form hx-post="/send" hx-target="#send-result" hx-swap="innerHTML"
+    @htmx:before-request.camel="sending = true"
+    @htmx:after-swap.camel="sending = false">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="form-group"><label>To</label><input type="text" name="to" required id="compose-to" value="{{ draft_to or '' }}"></div>
+    <div class="form-group"><label>Subject</label><input type="text" name="subject" id="compose-subject" value="{{ draft_subject or '' }}"></div>
+    <div class="form-group"><label>Body</label><textarea name="body" rows="8" id="compose-body">{{ draft_body or '' }}</textarea></div>
+    {% if draft_id %}<input type="hidden" name="draft_id" value="{{ draft_id }}">{% endif %}
+    <div style="display:flex;gap:0.5rem;align-items:center;">
+      <button type="submit" :disabled="sending">
+        <span x-show="!sending">send</span>
+        <span x-show="sending" x-cloak>sending...</span>
+      </button>
+      <button type="button" class="sync-btn" :disabled="saving"
+        @click="saving = true;
+          fetch('/draft', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: new URLSearchParams({
+              _csrf: '{{ csrf_token }}',
+              to: document.getElementById('compose-to').value,
+              subject: document.getElementById('compose-subject').value,
+              body: document.getElementById('compose-body').value
+            })
+          }).then(r => r.text()).then(html => {
+            document.getElementById('send-result').innerHTML = html;
+            saving = false;
+          }).catch(() => { saving = false; })">
+        <span x-show="!saving">save draft</span>
+        <span x-show="saving" x-cloak>saving...</span>
+      </button>
+    </div>
+  </form>
+  <div id="send-result"></div>
+</div>
