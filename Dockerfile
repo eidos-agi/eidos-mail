@@ -1,15 +1,8 @@
-FROM python:3.12-slim
+FROM ghcr.io/eidos-agi/eidos-mail-base:latest
 
 WORKDIR /app
 
-# System deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install CPU-only PyTorch first (much smaller than default CUDA version)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-
+# Light app deps only (no torch/sentence-transformers — already in base)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
