@@ -3,7 +3,6 @@ target: https://mail.eidosagi.com
 target_type: api
 created_at: '2026-03-08T12:24:41Z'
 steps:
-# --- Health & Public ---
 - name: health endpoint
   type: health
   config:
@@ -24,8 +23,6 @@ steps:
     method: GET
     expect_status: 404
   why: proper 404 handling, not catch-all redirect
-
-# --- Auth flow ---
 - name: auth login initiates OAuth redirect
   type: http
   config:
@@ -47,8 +44,6 @@ steps:
     method: GET
     expect_status: 302
   why: logout should redirect
-
-# --- Web UI routes (302 redirect to login) ---
 - name: root redirects unauthenticated to login
   type: http
   config:
@@ -105,8 +100,6 @@ steps:
     method: GET
     expect_status: 302
   why: diagnostics pages must not be public
-
-# --- Web UI POST routes (302 redirect to login) ---
 - name: POST /sync requires auth
   type: http
   config:
@@ -135,8 +128,6 @@ steps:
     method: POST
     expect_status: 302
   why: write operation requires auth
-
-# --- Method enforcement ---
 - name: GET on POST-only /sync returns 405
   type: http
   config:
@@ -144,8 +135,6 @@ steps:
     method: GET
     expect_status: 405
   why: spec shows /sync is POST-only
-
-# --- API routes (404 to hide existence — secure by design) ---
 - name: API base path returns 404
   type: http
   config:
@@ -223,4 +212,266 @@ steps:
     method: POST
     expect_status: 404
   why: forward endpoint hidden without auth
-updated_at: '2026-03-09T11:00:00Z'
+- name: email detail with path traversal attempt
+  type: http
+  config:
+    url: https://mail.eidosagi.com/email/../../etc/passwd
+    method: GET
+    expect_status: 302
+  why: "Path traversal in email_id param \u2014 should redirect to login or 404, never\
+    \ serve filesystem content"
+- name: email detail with SQL injection attempt in ID
+  type: http
+  config:
+    url: https://mail.eidosagi.com/email/1%20OR%201=1
+    method: GET
+    expect_status: 302
+  why: "SQLi in email_id \u2014 should be rejected or redirect to auth, not process\
+    \ the injection"
+- name: API emails unauthed returns 401 or 403 (not 404)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails?recent=5
+    method: GET
+  why: "API endpoints should return proper auth error codes. 404 hides auth state\
+    \ but also hides bugs \u2014 need to see what actually happens"
+- name: search with XSS payload in query param
+  type: http
+  config:
+    url: https://mail.eidosagi.com/search/results?q=%3Cscript%3Ealert(1)%3C/script%3E
+    method: GET
+    expect_status: 302
+  why: "XSS in search query \u2014 should redirect to auth, but if somehow rendered,\
+    \ must be escaped"
+- name: CORS headers on API endpoint
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails
+    method: GET
+    headers:
+      Origin: https://evil.com
+  why: "Check if API reflects arbitrary origins in Access-Control-Allow-Origin \u2014\
+    \ would allow cross-site data theft"
+- name: auth callback with crafted code param
+  type: http
+  config:
+    url: https://mail.eidosagi.com/auth/callback?code=malicious_code_value&state=fake
+    method: GET
+    expect_status: 302
+  why: Does the callback validate the OAuth state parameter? A fake code+state should
+    fail gracefully (302 to login), not 500.
+- name: CORS headers on health endpoint (reachable)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/health
+    method: OPTIONS
+    headers:
+      Origin: https://evil.com
+      Access-Control-Request-Method: GET
+    expect_status: 200
+  why: Round 1 CORS test hit a 404. Testing against /health which is reachable to
+    see if CORS is configured and whether it reflects arbitrary origins.
+- name: API endpoints hide behind 404 vs auth bypass with forged cookie
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails?recent=5
+    method: GET
+    headers:
+      Cookie: session=eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWRtaW4ifQ.fake
+    expect_status: 404
+  why: "API returns 404 unauthed (good \u2014 hides existence). But does a forged\
+    \ session cookie change behavior? If it returns 401/403 instead of 404, that leaks\
+    \ endpoint existence to anyone with a bad token."
+- name: static assets accessible without auth (PWA)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/static/manifest.json
+    method: GET
+    expect_status: 200
+  why: PWA was just deployed. manifest.json and service worker should be publicly
+    accessible for PWA install to work. Verifies static file serving.
+- name: service worker JS accessible without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/static/sw.js
+    method: GET
+    expect_status: 200
+  why: Service worker must be public for PWA. Also check if it contains any hardcoded
+    secrets or API keys in the JS.
+- name: path traversal via double encoding on email detail
+  type: http
+  config:
+    url: https://mail.eidosagi.com/email/%2e%2e%2f%2e%2e%2fadmin
+    method: GET
+    expect_status: 404
+  why: Round 1 path traversal got 404 (route didn't match). Testing URL-encoded traversal
+    to see if the framework normalizes before or after routing.
+- name: "HTTP method confusion \u2014 PUT on /api/emails/1/delete"
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/1/delete
+    method: PUT
+    headers:
+      Content-Type: application/json
+    body: '{}'
+    expect_status: 405
+  why: Delete endpoint expects POST. Does it properly reject PUT with 405, or does
+    it leak info / accept unexpected methods?
+- name: manifest.json accessible without auth (PWA)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/manifest.json
+    method: GET
+    expect_status: 200
+    expect_body_contains: name
+  why: Previous static asset probe used wrong path. PWA manifest.json is standard
+    and should be public.
+- name: static directory enumeration (common FastAPI pattern)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/static/style.css
+    method: GET
+    expect_status: 200
+  why: FastAPI typically serves static from /static/. Previous probe may have used
+    wrong path. Try common filenames.
+- name: CORS preflight on /health (OPTIONS method)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/health
+    method: OPTIONS
+    headers:
+      Origin: https://evil.com
+      Access-Control-Request-Method: GET
+    expect_status: 200
+  why: "Previous CORS check on /health got 405 \u2014 likely sent wrong method. OPTIONS\
+    \ preflight is the correct way to test CORS."
+- name: auth callback 500 response body inspection
+  type: http
+  config:
+    url: https://mail.eidosagi.com/auth/callback?code=AAAA&state=fakesession
+    method: GET
+    expect_status: 500
+    expect_body_contains: traceback
+  why: "Callback returns 500 \u2014 need to verify response body doesn't leak stack\
+    \ traces, internal paths, or secrets with a crafted state param."
+- name: 'IDOR: email detail with ID=1 (lowest valid) unauthed'
+  type: http
+  config:
+    url: https://mail.eidosagi.com/email/1
+    method: GET
+    expect_status: 302
+  why: "Previous path traversal test got 404 \u2014 but a normal numeric ID should\
+    \ redirect to login. Verifying auth gate works on valid-looking IDs."
+- name: 'sensitive path probe: /docs (FastAPI auto-docs)'
+  type: http
+  config:
+    url: https://mail.eidosagi.com/docs
+    method: GET
+    expect_status: 404
+  why: FastAPI exposes /docs (Swagger UI) by default. Should be disabled in production.
+    If 200, it's an info leak.
+- name: 'sensitive path probe: /redoc'
+  type: http
+  config:
+    url: https://mail.eidosagi.com/redoc
+    method: GET
+    expect_status: 404
+  why: FastAPI also exposes /redoc by default. Should be disabled alongside /docs.
+- name: search with oversized query param (input validation)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/search/results?q=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    method: GET
+    expect_status: 302
+  why: Auth should reject before query processing. If 500, the app crashes on large
+    input instead of bouncing to login.
+- name: FastAPI /docs exposes interactive Swagger UI (info leakage)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/docs
+    method: GET
+    expect_status: 200
+    expect_body_contains: swagger-ui
+  why: "/docs returned 200 last round \u2014 confirm it serves full Swagger UI with\
+    \ try-it-out capability, which lets attackers enumerate and test all endpoints\
+    \ interactively"
+- name: 'sensitive path probe: /docs/oauth2-redirect'
+  type: http
+  config:
+    url: https://mail.eidosagi.com/docs/oauth2-redirect
+    method: GET
+    expect_status: 404
+  why: "FastAPI ships an OAuth2 redirect helper at this path \u2014 if exposed, could\
+    \ be used in auth flow manipulation"
+- name: 'sensitive path probe: /.env'
+  type: http
+  config:
+    url: https://mail.eidosagi.com/.env
+    method: GET
+    expect_status: 404
+  why: "Standard check for exposed environment files with secrets \u2014 Railway apps\
+    \ sometimes misconfigure static file serving"
+- name: 'sensitive path probe: /admin'
+  type: http
+  config:
+    url: https://mail.eidosagi.com/admin
+    method: GET
+    expect_status: 404
+  why: Check for hidden admin panel or debug interface
+- name: "auth logout without session \u2014 open redirect check"
+  type: http
+  config:
+    url: https://mail.eidosagi.com/auth/logout?redirect=https://evil.com
+    method: GET
+    expect_status: 302
+  why: Check if logout accepts arbitrary redirect parameter that could be used for
+    phishing
+- name: POST /send with GET method returns 405 not 200
+  type: http
+  config:
+    url: https://mail.eidosagi.com/send
+    method: GET
+    expect_status: 405
+  why: "Verify POST-only endpoints properly reject GET \u2014 method confusion could\
+    \ bypass auth if GET handler exists without protection"
+- name: search results with XSS in q param (reflected)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/search/results?q=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E
+    method: GET
+    expect_status: 302
+  why: "Search results should redirect unauthed \u2014 but if it reflects the query\
+    \ param in the redirect or error page, XSS risk"
+- name: compose with draft_id path traversal
+  type: http
+  config:
+    url: https://mail.eidosagi.com/compose?draft_id=../../etc/passwd
+    method: GET
+    expect_status: 302
+  why: "draft_id param could be used as file path internally \u2014 verify it redirects\
+    \ unauthed and doesn't leak filesystem"
+- name: "inbox with ike param (undocumented) \u2014 SSRF probe"
+  type: http
+  config:
+    url: https://mail.eidosagi.com/inbox?ike=http://169.254.169.254/latest/meta-data/
+    method: GET
+    expect_status: 302
+  why: "The 'ike' query param on /inbox is unusual and undocumented \u2014 could be\
+    \ an SSRF vector if it fetches URLs server-side"
+- name: email detail with negative ID (integer underflow)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/email/-1
+    method: GET
+    expect_status: 302
+  why: "Negative IDs can cause unexpected DB behavior \u2014 should redirect unauthed,\
+    \ not crash"
+- name: API delete with wildcard/SQL in email_id
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/1%20OR%201=1/delete
+    method: POST
+    expect_status: 404
+  why: "SQL injection in path param for destructive operation \u2014 should get 404\
+    \ (hidden) not 500 (injection parsed)"
+updated_at: '2026-03-09T06:13:17Z'
