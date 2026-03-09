@@ -116,21 +116,31 @@ def _ike_filter_sql(quadrant: str) -> str:
     return ""
 
 
-async def _ike_counts(user_email: str, folder: str) -> dict:
-    """Count unread emails in each Eisenhower quadrant."""
+async def _ike_data(user_email: str, folder: str) -> dict:
+    """Get Eisenhower quadrant counts and scatter points."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT urgency, priority FROM emails
+            """SELECT id, subject, urgency, priority FROM emails
             WHERE owner_email = $1 AND folder = $2
             AND is_read = FALSE AND deleted_at IS NULL""",
             user_email, folder,
         )
     counts = {"do": 0, "schedule": 0, "delegate": 0, "eliminate": 0}
+    points = []
     for r in rows:
-        q = _ike_quadrant(r["urgency"] or 0.5, r["priority"] or 0.5)
+        u = r["urgency"] or 0.5
+        p = r["priority"] or 0.5
+        q = _ike_quadrant(u, p)
         counts[q] += 1
-    return counts
+        points.append({
+            "id": r["id"],
+            "subject": (r["subject"] or "(no subject)")[:40],
+            "urgency": round(float(u), 3),
+            "priority": round(float(p), 3),
+            "quadrant": q,
+        })
+    return {"counts": counts, "points": points}
 
 
 # ---------------------------------------------------------------------------
@@ -232,8 +242,8 @@ async def _inbox_html(
         {"name": "Drafts", "label": "drafts", "count": folder_map.get("Drafts", 0)},
     ]
 
-    # Ike counts (only if ike is on)
-    ike_counts = await _ike_counts(user_email, folder) if ike_on else {}
+    # Ike data (only if ike is on)
+    ike = await _ike_data(user_email, folder) if ike_on else {"counts": {}, "points": []}
 
     return _render(
         "partials/inbox.html",
@@ -241,7 +251,8 @@ async def _inbox_html(
         per_page=PER_PAGE, total_pages=total_pages,
         active_folder=folder, folders=folders,
         unread_count=unread_count,
-        ike_on=ike_on, ike_quadrant=ike_quadrant, counts=ike_counts,
+        ike_on=ike_on, ike_quadrant=ike_quadrant,
+        counts=ike["counts"], ike_points=ike["points"],
     )
 
 

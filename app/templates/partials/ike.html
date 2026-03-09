@@ -1,26 +1,147 @@
-<div class="ike-grid">
-  <div class="ike-card{% if ike_quadrant == 'do' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=do" hx-target="#content" hx-swap="innerHTML">
-    <div class="q-label" style="color:var(--red);">DO FIRST</div>
-    <div class="q-count" style="color:var(--red);">{{ counts.do }}</div>
-    <div class="q-desc">urgent + important</div>
+<div class="ike-scatter-wrap">
+  <div style="position:relative;width:100%;max-width:400px;margin:0 auto;">
+    <canvas id="ike-canvas" width="400" height="400" style="width:100%;height:auto;border-radius:8px;cursor:crosshair;"></canvas>
+    <!-- Quadrant labels overlaid -->
+    <div style="position:absolute;top:8px;left:8px;font-size:0.65rem;color:var(--green);opacity:0.7;">SCHEDULE</div>
+    <div style="position:absolute;top:8px;right:8px;font-size:0.65rem;color:var(--red);opacity:0.7;">DO FIRST</div>
+    <div style="position:absolute;bottom:8px;left:8px;font-size:0.65rem;color:var(--muted);opacity:0.7;">ELIMINATE</div>
+    <div style="position:absolute;bottom:8px;right:8px;font-size:0.65rem;color:var(--orange);opacity:0.7;">DELEGATE</div>
+    <!-- Axis labels -->
+    <div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:0.6rem;color:var(--muted);">URGENCY &rarr;</div>
+    <div style="position:absolute;top:50%;left:-18px;transform:translateY(-50%) rotate(-90deg);font-size:0.6rem;color:var(--muted);">IMPORTANCE &rarr;</div>
   </div>
-  <div class="ike-card{% if ike_quadrant == 'schedule' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=schedule" hx-target="#content" hx-swap="innerHTML">
-    <div class="q-label" style="color:var(--green);">SCHEDULE</div>
-    <div class="q-count" style="color:var(--green);">{{ counts.schedule }}</div>
-    <div class="q-desc">not urgent + important</div>
-  </div>
-  <div class="ike-card{% if ike_quadrant == 'delegate' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=delegate" hx-target="#content" hx-swap="innerHTML">
-    <div class="q-label" style="color:var(--orange);">DELEGATE</div>
-    <div class="q-count" style="color:var(--orange);">{{ counts.delegate }}</div>
-    <div class="q-desc">urgent + not important</div>
-  </div>
-  <div class="ike-card{% if ike_quadrant == 'eliminate' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=eliminate" hx-target="#content" hx-swap="innerHTML">
-    <div class="q-label" style="color:var(--muted);">ELIMINATE</div>
-    <div class="q-count" style="color:var(--muted);">{{ counts.eliminate }}</div>
-    <div class="q-desc">not urgent + not important</div>
+  <!-- Quadrant filter buttons -->
+  <div class="ike-grid" style="margin-top:0.75rem;">
+    <div class="ike-card{% if ike_quadrant == 'do' %} selected{% endif %}"
+      hx-get="/inbox?folder={{ active_folder }}&ike=do" hx-target="#content" hx-swap="innerHTML">
+      <span class="q-label" style="color:var(--red);">DO</span>
+      <span class="q-count" style="color:var(--red);">{{ counts.do }}</span>
+    </div>
+    <div class="ike-card{% if ike_quadrant == 'schedule' %} selected{% endif %}"
+      hx-get="/inbox?folder={{ active_folder }}&ike=schedule" hx-target="#content" hx-swap="innerHTML">
+      <span class="q-label" style="color:var(--green);">SCHEDULE</span>
+      <span class="q-count" style="color:var(--green);">{{ counts.schedule }}</span>
+    </div>
+    <div class="ike-card{% if ike_quadrant == 'delegate' %} selected{% endif %}"
+      hx-get="/inbox?folder={{ active_folder }}&ike=delegate" hx-target="#content" hx-swap="innerHTML">
+      <span class="q-label" style="color:var(--orange);">DELEGATE</span>
+      <span class="q-count" style="color:var(--orange);">{{ counts.delegate }}</span>
+    </div>
+    <div class="ike-card{% if ike_quadrant == 'eliminate' %} selected{% endif %}"
+      hx-get="/inbox?folder={{ active_folder }}&ike=eliminate" hx-target="#content" hx-swap="innerHTML">
+      <span class="q-label" style="color:var(--muted);">ELIMINATE</span>
+      <span class="q-count" style="color:var(--muted);">{{ counts.eliminate }}</span>
+    </div>
   </div>
 </div>
+
+<script>
+(function() {
+  const points = {{ ike_points | tojson }};
+  const canvas = document.getElementById('ike-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const PAD = 20;
+
+  // Background
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, W, H);
+
+  // Quadrant fills
+  const half = W / 2;
+  const qColors = {
+    'schedule': 'rgba(34,197,94,0.08)',   // top-left (green)
+    'do':       'rgba(239,68,68,0.08)',    // top-right (red)
+    'eliminate':'rgba(128,128,128,0.05)',   // bottom-left (gray)
+    'delegate': 'rgba(249,115,22,0.08)',   // bottom-right (orange)
+  };
+  ctx.fillStyle = qColors.schedule; ctx.fillRect(PAD, PAD, half - PAD, half - PAD);
+  ctx.fillStyle = qColors.do;       ctx.fillRect(half, PAD, half - PAD, half - PAD);
+  ctx.fillStyle = qColors.eliminate; ctx.fillRect(PAD, half, half - PAD, half - PAD);
+  ctx.fillStyle = qColors.delegate;  ctx.fillRect(half, half, half - PAD, half - PAD);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(half, PAD); ctx.lineTo(half, H - PAD); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD, half); ctx.lineTo(W - PAD, half); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Dot colors by quadrant
+  const dotColors = {
+    'do':       '#ef4444',
+    'schedule': '#22c55e',
+    'delegate': '#f97316',
+    'eliminate':'#6b7280',
+  };
+
+  // Plot points: x = urgency, y = priority (inverted — high priority at top)
+  const plotW = W - PAD * 2;
+  const plotH = H - PAD * 2;
+
+  points.forEach(p => {
+    const x = PAD + p.urgency * plotW;
+    const y = PAD + (1 - p.priority) * plotH;
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = dotColors[p.quadrant] || '#888';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  });
+
+  // Tooltip on hover
+  const tooltip = document.createElement('div');
+  tooltip.style.cssText = 'position:fixed;background:#222;color:#eee;padding:4px 8px;border-radius:4px;font-size:0.7rem;pointer-events:none;display:none;z-index:100;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  document.body.appendChild(tooltip);
+
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    let hit = null;
+    for (const p of points) {
+      const px = PAD + p.urgency * plotW;
+      const py = PAD + (1 - p.priority) * plotH;
+      if (Math.hypot(mx - px, my - py) < 10) { hit = p; break; }
+    }
+
+    if (hit) {
+      tooltip.textContent = hit.subject;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 12) + 'px';
+      tooltip.style.top = (e.clientY - 8) + 'px';
+      canvas.style.cursor = 'pointer';
+    } else {
+      tooltip.style.display = 'none';
+      canvas.style.cursor = 'crosshair';
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  // Click on dot to open email
+  canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    for (const p of points) {
+      const px = PAD + p.urgency * plotW;
+      const py = PAD + (1 - p.priority) * plotH;
+      if (Math.hypot(mx - px, my - py) < 10) {
+        htmx.ajax('GET', '/email/' + p.id, {target: '#content', swap: 'innerHTML'});
+        return;
+      }
+    }
+  });
+})();
+</script>
