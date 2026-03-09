@@ -1,4 +1,13 @@
-"""IMAP sync: fetch emails per-user, store in Postgres, generate embeddings."""
+"""Smart IMAP sync: incremental by default, full when needed.
+
+Strategy:
+1. Track UIDVALIDITY per folder — if it changes, server rebuilt UIDs, full resync required
+2. Track highest_uid per folder — only fetch UIDs > highest_uid for incremental
+3. Sync flags (read/unread) for recent emails without re-downloading bodies
+4. Detect server-side deletions — soft-delete emails removed from server
+5. Full sync runs on first sync or when UIDVALIDITY changes
+6. Single IMAP connection per sync (not per-folder)
+"""
 
 import imaplib
 import email
@@ -10,6 +19,8 @@ from app.database import get_pool
 from app.embeddings import encode
 from app.vault_client import get_mail_password, get_mail_account
 from app.scoring import score_email
+
+SYNC_FOLDERS = ["INBOX", "Sent"]
 
 
 def extract_body(msg) -> str:
@@ -55,39 +66,92 @@ def parse_date(msg) -> datetime | None:
         return None
 
 
-def fetch_emails_imap(
-    imap_host: str, imap_port: int, email_addr: str, password: str,
-    folder: str = "INBOX",
-) -> list[tuple[int, bytes]]:
-    """Connect to IMAP, fetch all emails, return list of (uid, raw_bytes)."""
-    imap = imaplib.IMAP4_SSL(imap_host, imap_port)
+# ---------------------------------------------------------------------------
+# IMAP helpers
+# ---------------------------------------------------------------------------
+
+def _imap_connect(host: str, port: int, email_addr: str, password: str) -> imaplib.IMAP4_SSL:
+    """Open and authenticate a single IMAP connection."""
+    imap = imaplib.IMAP4_SSL(host, port)
     imap.login(email_addr, password)
-    imap.select(folder, readonly=True)
+    return imap
 
-    _, data = imap.uid("search", None, "ALL")
-    uids = data[0].split()
 
+def _select_folder(imap: imaplib.IMAP4_SSL, folder: str) -> tuple[int, int]:
+    """Select folder, return (message_count, uidvalidity)."""
+    _, data = imap.select(folder, readonly=True)
+    msg_count = int(data[0]) if data[0] else 0
+    # Get UIDVALIDITY
+    _, resp = imap.response("UIDVALIDITY")
+    uidvalidity = int(resp[0]) if resp and resp[0] else 0
+    return msg_count, uidvalidity
+
+
+def _fetch_uids(imap: imaplib.IMAP4_SSL, search_criteria: str = "ALL") -> list[int]:
+    """Search and return list of UIDs."""
+    _, data = imap.uid("search", None, search_criteria)
+    if not data[0]:
+        return []
+    return [int(u) for u in data[0].split()]
+
+
+def _fetch_flags(imap: imaplib.IMAP4_SSL, uids: list[int]) -> dict[int, set]:
+    """Fetch flags for given UIDs. Returns {uid: {flag_set}}."""
+    if not uids:
+        return {}
+    uid_str = ",".join(str(u) for u in uids)
+    _, data = imap.uid("fetch", uid_str, "(FLAGS)")
+    flags = {}
+    for item in data:
+        if isinstance(item, tuple):
+            item = item[0]
+        if not isinstance(item, bytes):
+            continue
+        text = item.decode(errors="replace")
+        # Parse "N (UID X FLAGS (\Seen \Flagged))"
+        import re
+        uid_match = re.search(r"UID (\d+)", text)
+        flags_match = re.search(r"FLAGS \(([^)]*)\)", text)
+        if uid_match:
+            uid = int(uid_match.group(1))
+            flag_set = set()
+            if flags_match:
+                flag_set = set(flags_match.group(1).split())
+            flags[uid] = flag_set
+    return flags
+
+
+def _fetch_messages(imap: imaplib.IMAP4_SSL, uids: list[int]) -> list[tuple[int, bytes]]:
+    """Fetch full RFC822 messages for given UIDs."""
     results = []
-    for uid_bytes in uids:
-        uid = int(uid_bytes)
-        _, msg_data = imap.uid("fetch", uid_bytes, "(RFC822)")
+    for uid in uids:
+        _, msg_data = imap.uid("fetch", str(uid).encode(), "(RFC822)")
         if msg_data[0] is None:
             continue
         raw = msg_data[0][1]
         results.append((uid, raw))
-
-    imap.logout()
     return results
 
+
+# ---------------------------------------------------------------------------
+# Smart sync
+# ---------------------------------------------------------------------------
 
 async def sync_emails_for_user(
     user_email: str, folders: list[str] | None = None,
 ) -> dict:
-    """Per-user sync: look up credentials, IMAP fetch, insert with owner_email."""
-    if folders is None:
-        folders = ["INBOX", "Sent"]
+    """Smart per-user sync with incremental fetching.
 
-    # Look up account config and password
+    Flow per folder:
+    1. Check UIDVALIDITY — if changed, nuke sync state & full resync
+    2. If we have highest_uid, only fetch UIDs > highest_uid (incremental)
+    3. If no sync state, fetch all (first sync)
+    4. Sync flags for recent emails (last 200) to catch read/unread changes
+    5. Detect server-side deletions for this folder
+    """
+    if folders is None:
+        folders = list(SYNC_FOLDERS)
+
     account = await get_mail_account(user_email)
     if not account:
         return {"error": f"No mail account configured for {user_email}"}
@@ -98,7 +162,7 @@ async def sync_emails_for_user(
 
     pool = await get_pool()
 
-    # Mark sync in progress
+    # Mark syncing
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE mail_accounts SET sync_status = 'syncing' "
@@ -106,75 +170,29 @@ async def sync_emails_for_user(
             user_email,
         )
 
-    stats = {"folders": {}, "total_new": 0}
+    stats = {"folders": {}, "total_new": 0, "total_flag_updates": 0, "total_deletions": 0}
 
     try:
-        # Get already-synced UIDs for this user
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT uid, folder FROM emails "
-                "WHERE owner_email = $1 AND deleted_at IS NULL",
-                user_email,
-            )
-            synced = {(r["uid"], r["folder"]) for r in rows}
+        # Single IMAP connection for all folders
+        imap = _imap_connect(
+            account["imap_host"], account["imap_port"],
+            user_email, password,
+        )
 
         new_email_ids = []
 
         for folder in folders:
-            try:
-                emails_raw = fetch_emails_imap(
-                    account["imap_host"], account["imap_port"],
-                    user_email, password, folder,
-                )
-            except Exception as e:
-                stats["folders"][folder] = {"error": str(e)}
-                continue
+            folder_stats = await _sync_folder(
+                imap, pool, user_email, folder, new_email_ids,
+            )
+            stats["folders"][folder] = folder_stats
+            stats["total_new"] += folder_stats.get("new", 0)
+            stats["total_flag_updates"] += folder_stats.get("flag_updates", 0)
+            stats["total_deletions"] += folder_stats.get("deletions", 0)
 
-            new_count = 0
-            for uid, raw in emails_raw:
-                if (uid, folder) in synced:
-                    continue
+        imap.logout()
 
-                msg = email.message_from_bytes(raw, policy=email.policy.default)
-                body = extract_body(msg)
-                date_sent = parse_date(msg)
-
-                urgency, priority = score_email(
-                    msg.get("Subject", ""), body,
-                    msg.get("From", ""), date_sent,
-                )
-
-                async with pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        """INSERT INTO emails
-                            (uid, message_id, from_addr, to_addrs, cc_addrs,
-                             subject, date_sent, body_text, folder, owner_email,
-                             urgency, priority)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                        ON CONFLICT (owner_email, uid, folder) DO NOTHING
-                        RETURNING id""",
-                        uid,
-                        msg.get("Message-ID", ""),
-                        msg.get("From", ""),
-                        msg.get("To", ""),
-                        msg.get("Cc", ""),
-                        msg.get("Subject", ""),
-                        date_sent,
-                        body,
-                        folder,
-                        user_email,
-                        urgency,
-                        priority,
-                    )
-                    if row:
-                        new_email_ids.append(row["id"])
-                        new_count += 1
-                        synced.add((uid, folder))
-
-            stats["folders"][folder] = {"fetched": len(emails_raw), "new": new_count}
-            stats["total_new"] += new_count
-
-        # Generate embeddings for new emails
+        # Batch embed new emails
         if new_email_ids:
             await embed_emails(new_email_ids)
             stats["embedded"] = len(new_email_ids)
@@ -189,7 +207,6 @@ async def sync_emails_for_user(
             )
 
     except Exception as e:
-        # Mark sync error
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE mail_accounts SET sync_status = 'error', "
@@ -201,6 +218,171 @@ async def sync_emails_for_user(
 
     return stats
 
+
+async def _sync_folder(
+    imap: imaplib.IMAP4_SSL,
+    pool,
+    user_email: str,
+    folder: str,
+    new_email_ids: list[int],
+) -> dict:
+    """Sync a single folder with smart incremental logic."""
+    fstats = {"mode": "incremental", "new": 0, "flag_updates": 0, "deletions": 0}
+
+    try:
+        msg_count, uidvalidity = _select_folder(imap, folder)
+    except Exception as e:
+        return {"error": str(e)}
+
+    # Get sync state for this folder
+    async with pool.acquire() as conn:
+        state = await conn.fetchrow(
+            "SELECT uidvalidity, highest_uid FROM sync_state "
+            "WHERE owner_email = $1 AND folder = $2",
+            user_email, folder,
+        )
+
+    need_full = False
+    highest_uid = 0
+
+    if state is None:
+        # First sync ever for this folder
+        need_full = True
+        fstats["mode"] = "full (first sync)"
+    elif state["uidvalidity"] != uidvalidity and state["uidvalidity"] is not None:
+        # UIDVALIDITY changed — server rebuilt UIDs, all our stored UIDs are invalid
+        need_full = True
+        fstats["mode"] = "full (UIDVALIDITY changed)"
+        # Soft-delete all emails for this folder since UIDs are now meaningless
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE emails SET deleted_at = NOW() "
+                "WHERE owner_email = $1 AND folder = $2 AND deleted_at IS NULL",
+                user_email, folder,
+            )
+    else:
+        highest_uid = state["highest_uid"] or 0
+
+    # --- Fetch new messages ---
+    if need_full:
+        server_uids = _fetch_uids(imap, "ALL")
+    elif highest_uid > 0:
+        # Incremental: only UIDs above our watermark
+        server_uids = _fetch_uids(imap, f"UID {highest_uid + 1}:*")
+        # IMAP quirk: UID X:* always returns at least UID X even if nothing new
+        server_uids = [u for u in server_uids if u > highest_uid]
+    else:
+        server_uids = _fetch_uids(imap, "ALL")
+
+    fstats["server_count"] = msg_count
+    fstats["to_fetch"] = len(server_uids)
+
+    # Get already-synced UIDs for dedup
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT uid FROM emails WHERE owner_email = $1 AND folder = $2 AND deleted_at IS NULL",
+            user_email, folder,
+        )
+        synced_uids = {r["uid"] for r in rows}
+
+    # Filter out already-synced
+    uids_to_fetch = [u for u in server_uids if u not in synced_uids]
+
+    if uids_to_fetch:
+        messages = _fetch_messages(imap, uids_to_fetch)
+        for uid, raw in messages:
+            msg = email.message_from_bytes(raw, policy=email.policy.default)
+            body = extract_body(msg)
+            date_sent = parse_date(msg)
+            urgency, priority = score_email(
+                msg.get("Subject", ""), body,
+                msg.get("From", ""), date_sent,
+            )
+
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """INSERT INTO emails
+                        (uid, message_id, from_addr, to_addrs, cc_addrs,
+                         subject, date_sent, body_text, folder, owner_email,
+                         urgency, priority)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    ON CONFLICT (owner_email, uid, folder) DO NOTHING
+                    RETURNING id""",
+                    uid,
+                    msg.get("Message-ID", ""),
+                    msg.get("From", ""),
+                    msg.get("To", ""),
+                    msg.get("Cc", ""),
+                    msg.get("Subject", ""),
+                    date_sent,
+                    body,
+                    folder,
+                    user_email,
+                    urgency,
+                    priority,
+                )
+                if row:
+                    new_email_ids.append(row["id"])
+                    fstats["new"] += 1
+
+    # --- Flag sync: check read/unread for recent emails ---
+    all_server_uids = _fetch_uids(imap, "ALL") if not need_full else server_uids
+    if all_server_uids:
+        # Only sync flags for last 200 to keep it fast
+        recent_uids = all_server_uids[-200:]
+        server_flags = _fetch_flags(imap, recent_uids)
+
+        if server_flags:
+            async with pool.acquire() as conn:
+                db_rows = await conn.fetch(
+                    "SELECT uid, is_read FROM emails "
+                    "WHERE owner_email = $1 AND folder = $2 AND uid = ANY($3::int[]) "
+                    "AND deleted_at IS NULL",
+                    user_email, folder, list(server_flags.keys()),
+                )
+                for r in db_rows:
+                    server_read = "\\Seen" in server_flags.get(r["uid"], set())
+                    if server_read != r["is_read"]:
+                        await conn.execute(
+                            "UPDATE emails SET is_read = $1 WHERE owner_email = $2 "
+                            "AND folder = $3 AND uid = $4 AND deleted_at IS NULL",
+                            server_read, user_email, folder, r["uid"],
+                        )
+                        fstats["flag_updates"] += 1
+
+    # --- Detect server-side deletions ---
+    all_server_uid_set = set(all_server_uids) if all_server_uids else set()
+    if synced_uids and all_server_uid_set:
+        deleted_uids = synced_uids - all_server_uid_set
+        if deleted_uids:
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    "UPDATE emails SET deleted_at = NOW() "
+                    "WHERE owner_email = $1 AND folder = $2 "
+                    "AND uid = ANY($3::int[]) AND deleted_at IS NULL",
+                    user_email, folder, list(deleted_uids),
+                )
+                fstats["deletions"] = int(result.split()[-1])
+
+    # --- Update sync state ---
+    new_highest = max(all_server_uids) if all_server_uids else highest_uid
+    now_col = "last_full_sync" if need_full else "last_incremental_sync"
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"""INSERT INTO sync_state (owner_email, folder, uidvalidity, highest_uid, {now_col})
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (owner_email, folder) DO UPDATE SET
+                uidvalidity = $3, highest_uid = $4, {now_col} = NOW()""",
+            user_email, folder, uidvalidity, new_highest,
+        )
+
+    return fstats
+
+
+# ---------------------------------------------------------------------------
+# Embedding
+# ---------------------------------------------------------------------------
 
 async def embed_emails(email_ids: list[int]):
     """Generate and store embeddings for given email IDs."""
