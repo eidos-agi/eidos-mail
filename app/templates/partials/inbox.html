@@ -35,11 +35,6 @@
   {% include "partials/ike.html" %}
   {% endif %}
 
-  <!-- Auto-sync on first load -->
-  <div hx-post="/sync" hx-trigger="load" hx-target="#sync-status" hx-swap="innerHTML"
-    x-init="syncing = true" @htmx:after-swap.camel="syncing = false"
-    style="display:none;"></div>
-
   <!-- Email list -->
   <div id="email-list" class="email-list">
     {% for e in emails %}
