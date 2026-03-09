@@ -30,7 +30,13 @@ async def lifespan(app: FastAPI):
     await close_pool()
 
 
-app = FastAPI(title="eidos-mail", lifespan=lifespan)
+app = FastAPI(
+    title="eidos-mail",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET or "dev-secret-change-me", https_only=False)
 app.include_router(auth_router)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")

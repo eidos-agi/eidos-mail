@@ -189,14 +189,18 @@ async def login(request: Request):
 
 @router.get("/callback")
 async def callback(request: Request):
-    token = await oauth.authentik.authorize_access_token(request)
+    try:
+        token = await oauth.authentik.authorize_access_token(request)
+    except Exception:
+        return RedirectResponse(url="/auth/login", status_code=302)
+
     userinfo = token.get("userinfo")
     if not userinfo:
-        raise HTTPException(status_code=400, detail="No userinfo in token response")
+        return RedirectResponse(url="/auth/login", status_code=302)
 
     email = userinfo.get("email")
     if not email:
-        raise HTTPException(status_code=400, detail="No email in userinfo")
+        return RedirectResponse(url="/auth/login", status_code=302)
 
     request.session["user_email"] = email
     return RedirectResponse(url="/", status_code=302)
