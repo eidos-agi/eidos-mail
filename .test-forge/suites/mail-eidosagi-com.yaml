@@ -283,7 +283,7 @@ steps:
     url: https://mail.eidosagi.com/api/search
     method: GET
     expect_status: 404
-  why: "Auth fires first (404), so missing q param is never reached without auth"
+  why: Auth fires first (404), so missing q param is never reached without auth
 - name: POST /api/send requires auth
   type: http
   config:
@@ -330,4 +330,74 @@ steps:
     method: GET
     expect_status: 302
   why: Infra/diagnostics pages should not be publicly accessible
-updated_at: '2026-03-09T03:54:44Z'
+- name: POST /sync
+  type: http
+  config:
+    url: https://mail.eidosagi.com/sync
+    method: POST
+    expect_status: 302
+  why: "POST endpoint \u2014 expects auth redirect without token"
+- name: POST /mark-all-read
+  type: http
+  config:
+    url: https://mail.eidosagi.com/mark-all-read
+    method: POST
+    expect_status: 302
+  why: "POST endpoint \u2014 expects auth redirect without token"
+- name: POST /draft
+  type: http
+  config:
+    url: https://mail.eidosagi.com/draft
+    method: POST
+    expect_status: 302
+  why: "POST endpoint \u2014 expects auth redirect without token"
+- name: POST /send
+  type: http
+  config:
+    url: https://mail.eidosagi.com/send
+    method: POST
+    expect_status: 302
+  why: "POST endpoint \u2014 expects auth redirect without token"
+- name: GET /infra
+  type: http
+  config:
+    url: https://mail.eidosagi.com/infra
+    method: GET
+    expect_status: 302
+  why: redirects to login (auth-protected)
+- name: POST /api/sync
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/sync
+    method: POST
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
+- name: GET /api/search
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/search
+    method: GET
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
+- name: GET /api/emails
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails
+    method: GET
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
+- name: GET /api/emails/{email_id}
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/{email_id}
+    method: GET
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
+- name: POST /api/send
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/send
+    method: POST
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
+updated_at: '2026-03-09T04:18:35Z'
