@@ -195,4 +195,4 @@ steps:
     method: GET
     expect_status: 404
   why: auth returns 404 before checking if email exists
-updated_at: '2026-03-09T09:23:00Z'
+updated_at: '2026-03-09T09:27:00Z'
