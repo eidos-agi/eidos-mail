@@ -244,6 +244,24 @@ def forward_email(
 
 
 @mcp.tool()
+def undelete_email(email_id: int, email: str = DEFAULT_EMAIL) -> dict:
+    """Restore a soft-deleted email from trash.
+
+    Args:
+        email_id: The email ID to restore
+        email: Email account (default daniel@eidosagi.com)
+    """
+    resp = httpx.post(
+        f"{MAIL_API}/api/emails/{email_id}/undelete",
+        params={"email": email},
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
 def sync_inbox(email: str = DEFAULT_EMAIL) -> dict:
     """Trigger IMAP sync to fetch new emails from the mail server.
 

@@ -67,6 +67,7 @@ eidos-mail/
 - `POST /api/emails/{id}/delete` — soft-delete an email
 - `POST /api/emails/{id}/reply` — reply with threading (JSON: {body})
 - `POST /api/emails/{id}/forward` — forward email (JSON: {to, body})
+- `POST /api/emails/{id}/undelete` — restore a soft-deleted email from trash
 - `GET /health` — health check
 
 ## Development

@@ -1,11 +1,15 @@
-<div class="email-item{% if not e.is_read %} unread{% endif %}" data-swipe data-id="{{ e.id }}">
+<div class="email-item{% if not e.is_read %} unread{% endif %}{% if is_trash %} trashed{% endif %}" data-swipe data-id="{{ e.id }}">
   <!-- Swipe backgrounds -->
+  {% if is_trash %}
+  <div class="swipe-bg left" style="background:var(--green);">&#8634; Restore</div>
+  {% else %}
   <div class="swipe-bg left">&#10003; Read</div>
   <div class="swipe-bg right">&#128465; Delete</div>
+  {% endif %}
   <!-- Main content -->
   <div class="email-inner" style="display:flex;align-items:flex-start;gap:0.75rem;width:100%;position:relative;z-index:1;background:inherit;"
     hx-get="/email/{{ e.id }}" hx-target="#detail-{{ e.id }}" hx-swap="innerHTML">
-    {% if not e.is_read %}<div class="unread-dot"></div>{% endif %}
+    {% if not e.is_read and not is_trash %}<div class="unread-dot"></div>{% endif %}
     <div class="avatar" data-from="{{ e.from_addr }}"></div>
     <div class="email-body">
       <div class="email-top">
@@ -15,6 +19,10 @@
       <div class="email-subject">{{ e.subject }}</div>
       <div class="email-snippet">{{ e.snippet }}</div>
     </div>
+    {% if is_trash %}
+    <button class="btn-ghost" style="font-size:0.7rem;color:var(--green);flex-shrink:0;align-self:center;"
+      onclick="event.stopPropagation(); quickAction('undelete', {{ e.id }}, this)">restore</button>
+    {% endif %}
   </div>
   <div id="detail-{{ e.id }}"></div>
 </div>

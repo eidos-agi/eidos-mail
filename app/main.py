@@ -208,7 +208,8 @@ async def _inbox_html(
     pool = await get_pool()
     offset = (page - 1) * PER_PAGE
 
-    ike_on = ike_param is not None
+    is_trash = folder == "Trash"
+    ike_on = ike_param is not None and not is_trash
     ike_quadrant = ike_param if ike_param and ike_param != "all" else None
 
     # Build query with optional Ike filter
@@ -217,29 +218,46 @@ async def _inbox_html(
         where_extra = _ike_filter_sql(ike_quadrant)
 
     async with pool.acquire() as conn:
-        total = await conn.fetchval(
-            f"SELECT COUNT(*) FROM emails "
-            f"WHERE owner_email = $1 AND folder = $2 AND deleted_at IS NULL {where_extra}",
-            user_email, folder,
-        )
-        rows = await conn.fetch(
-            f"""SELECT id, from_addr, subject, date_sent, body_text, is_read
-            FROM emails
-            WHERE owner_email = $1 AND folder = $2 AND deleted_at IS NULL {where_extra}
-            ORDER BY date_sent DESC LIMIT $3 OFFSET $4""",
-            user_email, folder, PER_PAGE, offset,
-        )
-        unread_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM emails "
-            "WHERE owner_email = $1 AND folder = $2 AND is_read = FALSE AND deleted_at IS NULL",
-            user_email, folder,
-        )
+        if is_trash:
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM emails WHERE owner_email = $1 AND deleted_at IS NOT NULL",
+                user_email,
+            )
+            rows = await conn.fetch(
+                """SELECT id, from_addr, subject, date_sent, body_text, is_read
+                FROM emails WHERE owner_email = $1 AND deleted_at IS NOT NULL
+                ORDER BY deleted_at DESC LIMIT $2 OFFSET $3""",
+                user_email, PER_PAGE, offset,
+            )
+            unread_count = 0
+        else:
+            total = await conn.fetchval(
+                f"SELECT COUNT(*) FROM emails "
+                f"WHERE owner_email = $1 AND folder = $2 AND deleted_at IS NULL {where_extra}",
+                user_email, folder,
+            )
+            rows = await conn.fetch(
+                f"""SELECT id, from_addr, subject, date_sent, body_text, is_read
+                FROM emails
+                WHERE owner_email = $1 AND folder = $2 AND deleted_at IS NULL {where_extra}
+                ORDER BY date_sent DESC LIMIT $3 OFFSET $4""",
+                user_email, folder, PER_PAGE, offset,
+            )
+            unread_count = await conn.fetchval(
+                "SELECT COUNT(*) FROM emails "
+                "WHERE owner_email = $1 AND folder = $2 AND is_read = FALSE AND deleted_at IS NULL",
+                user_email, folder,
+            )
 
         # Folder counts for nav
         folder_counts = await conn.fetch(
             "SELECT folder, COUNT(*) as cnt FROM emails "
             "WHERE owner_email = $1 AND deleted_at IS NULL "
             "GROUP BY folder ORDER BY folder",
+            user_email,
+        )
+        trash_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM emails WHERE owner_email = $1 AND deleted_at IS NOT NULL",
             user_email,
         )
 
@@ -259,6 +277,7 @@ async def _inbox_html(
         {"name": "INBOX", "label": "inbox", "count": folder_map.get("INBOX", 0)},
         {"name": "Sent", "label": "sent", "count": folder_map.get("Sent", 0)},
         {"name": "Drafts", "label": "drafts", "count": folder_map.get("Drafts", 0)},
+        {"name": "Trash", "label": "trash", "count": trash_count},
     ]
 
     # Ike data (only if ike is on)
@@ -269,7 +288,7 @@ async def _inbox_html(
         emails=emails_list, total=total, page=page,
         per_page=PER_PAGE, total_pages=total_pages,
         active_folder=folder, folders=folders,
-        unread_count=unread_count,
+        unread_count=unread_count, is_trash=is_trash,
         ike_on=ike_on, ike_quadrant=ike_quadrant,
         counts=ike["counts"], ike_points=ike["points"],
     )
@@ -447,6 +466,18 @@ async def delete_email_web(email_id: int, email: str = Depends(require_web_auth)
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE emails SET deleted_at = NOW() WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+            email_id, email,
+        )
+    return HTMLResponse("ok")
+
+
+@app.post("/undelete/{email_id}", response_class=HTMLResponse)
+async def undelete_email_web(email_id: int, email: str = Depends(require_web_auth)):
+    """Restore a soft-deleted email from Trash."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE emails SET deleted_at = NULL WHERE id = $1 AND owner_email = $2 AND deleted_at IS NOT NULL",
             email_id, email,
         )
     return HTMLResponse("ok")
@@ -781,6 +812,21 @@ async def api_delete_email(email_id: int, email: str = Depends(require_api_auth)
     if result == "UPDATE 0":
         return JSONResponse({"error": "not found"}, status_code=404)
     return {"status": "deleted", "id": email_id}
+
+
+@app.post("/api/emails/{email_id}/undelete")
+async def api_undelete_email(email_id: int, email: str = Depends(require_api_auth)):
+    """Restore a soft-deleted email."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE emails SET deleted_at = NULL "
+            "WHERE id = $1 AND owner_email = $2 AND deleted_at IS NOT NULL",
+            email_id, email,
+        )
+    if result == "UPDATE 0":
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"status": "restored", "id": email_id}
 
 
 @app.post("/api/emails/{email_id}/reply")

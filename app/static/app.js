@@ -63,21 +63,36 @@ function initSwipe() {
       swiping = false;
       content.style.transition = 'transform 0.2s ease';
       const id = el.dataset.id;
+      const isTrash = el.classList.contains('trashed');
       if (currentX > 80) {
-        // Swipe right = mark read
         content.style.transform = 'translateX(100%)';
-        setTimeout(() => {
-          fetch('/mark-read', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: [parseInt(id)], read: true })
-          }).then(() => {
-            el.classList.remove('unread');
-            content.style.transform = 'translateX(0)';
-          });
-        }, 150);
-      } else if (currentX < -80) {
-        // Swipe left = delete
+        if (isTrash) {
+          // Swipe right in trash = restore
+          setTimeout(() => {
+            fetch(`/undelete/${id}`, { method: 'POST' }).then(() => {
+              el.style.maxHeight = el.offsetHeight + 'px';
+              el.style.overflow = 'hidden';
+              el.style.transition = 'max-height 0.3s ease, padding 0.3s ease';
+              el.style.maxHeight = '0';
+              el.style.padding = '0';
+              setTimeout(() => el.remove(), 300);
+            });
+          }, 150);
+        } else {
+          // Swipe right = mark read
+          setTimeout(() => {
+            fetch('/mark-read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: [parseInt(id)], read: true })
+            }).then(() => {
+              el.classList.remove('unread');
+              content.style.transform = 'translateX(0)';
+            });
+          }, 150);
+        }
+      } else if (currentX < -80 && !isTrash) {
+        // Swipe left = delete (not in trash)
         content.style.transform = 'translateX(-100%)';
         el.style.maxHeight = el.offsetHeight + 'px';
         setTimeout(() => {
@@ -111,6 +126,18 @@ function quickAction(action, id, btn) {
     }).then(() => item?.classList.remove('unread'));
   } else if (action === 'delete') {
     fetch(`/delete/${id}`, { method: 'POST' }).then(() => {
+      if (item) {
+        item.style.maxHeight = item.offsetHeight + 'px';
+        item.style.overflow = 'hidden';
+        item.style.transition = 'max-height 0.3s ease, padding 0.3s ease, opacity 0.3s';
+        item.style.opacity = '0';
+        item.style.maxHeight = '0';
+        item.style.padding = '0';
+        setTimeout(() => item.remove(), 300);
+      }
+    });
+  } else if (action === 'undelete') {
+    fetch(`/undelete/${id}`, { method: 'POST' }).then(() => {
       if (item) {
         item.style.maxHeight = item.offsetHeight + 'px';
         item.style.overflow = 'hidden';
