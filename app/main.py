@@ -23,6 +23,18 @@ from app.auth import router as auth_router, AuthRequired, require_web_auth, requ
 from app.vault_client import get_mail_password, get_mail_account
 
 
+async def _save_to_sent(msg: MIMEText, account: dict, email_addr: str, password: str):
+    """Append a sent message to the IMAP Sent folder."""
+    try:
+        imap = imaplib.IMAP4_SSL(account["imap_host"], account["imap_port"])
+        imap.login(email_addr, password)
+        import time as _time
+        imap.append("Sent", "\\Seen", imaplib.Time2Internaldate(_time.time()), msg.as_bytes())
+        imap.logout()
+    except Exception:
+        pass  # Best-effort — don't fail the send
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
@@ -501,6 +513,7 @@ async def send_email_htmx(request: Request, email: str = Depends(require_web_aut
         with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
             smtp.login(email, password)
             smtp.send_message(msg)
+        await _save_to_sent(msg, account, email, password)
 
         # Soft-delete the draft if sending from one
         if draft_id:
@@ -809,6 +822,7 @@ async def api_reply(email_id: int, request: Request, email: str = Depends(requir
         with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
             smtp.login(email, password)
             smtp.send_message(msg)
+        await _save_to_sent(msg, account, email, password)
 
         return {"status": "sent", "to": to, "subject": subject}
     except Exception as e:
@@ -859,6 +873,7 @@ async def api_forward(email_id: int, request: Request, email: str = Depends(requ
         with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
             smtp.login(email, password)
             smtp.send_message(msg)
+        await _save_to_sent(msg, account, email, password)
 
         return {"status": "forwarded", "to": to, "subject": subject}
     except Exception as e:
@@ -892,6 +907,7 @@ async def api_send(request: Request, email: str = Depends(require_api_auth)):
         with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
             smtp.login(email, password)
             smtp.send_message(msg)
+        await _save_to_sent(msg, account, email, password)
 
         return {"status": "sent", "to": to}
     except Exception as e:
