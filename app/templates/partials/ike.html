@@ -93,10 +93,14 @@
     ctx.stroke();
   });
 
-  // Tooltip on hover
-  const tooltip = document.createElement('div');
-  tooltip.style.cssText = 'position:fixed;background:#222;color:#eee;padding:4px 8px;border-radius:4px;font-size:0.7rem;pointer-events:none;display:none;z-index:100;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-  document.body.appendChild(tooltip);
+  // Tooltip on hover (reuse existing to prevent DOM leak)
+  let tooltip = document.getElementById('ike-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'ike-tooltip';
+    tooltip.style.cssText = 'position:fixed;background:#222;color:#eee;padding:4px 8px;border-radius:4px;font-size:0.7rem;pointer-events:none;display:none;z-index:100;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    document.body.appendChild(tooltip);
+  }
 
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();

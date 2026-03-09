@@ -1,35 +1,55 @@
 <div class="email-detail">
+  <!-- Back button (H6) -->
+  <button class="action-btn back-btn" style="margin-bottom:0.75rem;"
+    onclick="htmx.ajax('GET', '/inbox', {target: '#content', swap: 'innerHTML'})">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="15 18 9 12 15 6"/></svg>
+    Back
+  </button>
+
   <div class="detail-header">
     <div class="detail-subject">{{ email.subject or '(no subject)' }}</div>
     <div class="detail-meta">
       <div class="avatar" data-from="{{ email.from_addr }}" style="width:36px;height:36px;min-width:36px;font-size:0.75rem;"></div>
       <div class="detail-meta-text">
-        <div><strong>{{ email.from_addr }}</strong></div>
+        <div><strong>{{ email.from_display }}</strong></div>
+        <div style="font-size:0.72rem;color:var(--muted);">{{ email.from_addr }}</div>
         <div><span class="label">To:</span> {{ email.to_addrs }}</div>
         {% if email.cc_addrs %}<div><span class="label">Cc:</span> {{ email.cc_addrs }}</div>{% endif %}
-        <div class="date">{{ email.date_sent }}</div>
+        <div class="date">{{ email.date_display }}</div>
       </div>
     </div>
   </div>
+
+  {% if email.is_html %}
+  <!-- Sandboxed HTML email rendering (C4/C5) -->
+  <iframe class="detail-body-iframe" sandbox="allow-popups allow-popups-to-escape-sandbox"
+    srcdoc="{{ email.body_text | e }}"
+    style="width:100%;border:none;min-height:300px;margin-top:1rem;border-top:1px solid var(--border);background:#fff;border-radius:4px;"
+    onload="this.style.height = Math.min(this.contentDocument.body.scrollHeight + 20, 800) + 'px'"></iframe>
+  {% else %}
   <div class="detail-body">{{ email.body_text }}</div>
+  {% endif %}
+
   <div class="detail-actions">
     <button class="action-btn primary"
-      @click="
-        tab = 'compose';
+      onclick="
         htmx.ajax('GET', '/compose?reply_to={{ email.id }}', {target: '#content', swap: 'innerHTML'})
       ">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
       Reply
     </button>
     <button class="action-btn"
-      @click="
-        tab = 'compose';
+      onclick="
         htmx.ajax('GET', '/compose?forward={{ email.id }}', {target: '#content', swap: 'innerHTML'})
       ">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg>
       Forward
     </button>
-    <button class="action-btn danger" onclick="quickAction('delete', {{ email.id }}, this)">
+    <button class="action-btn danger" onclick="
+      fetch('/delete/{{ email.id }}', { method: 'POST' })
+        .then(r => { if(r.ok) htmx.ajax('GET', '/inbox', {target: '#content', swap: 'innerHTML'}); })
+        .catch(() => showToast('Delete failed', 'error'))
+    ">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       Delete
     </button>

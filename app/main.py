@@ -1,10 +1,14 @@
 """FastAPI app: HTMX web UI + REST API for email operations."""
 
+import asyncio
 import hmac
 import imaplib
+import logging
 import os
+import re
 import secrets
 import smtplib
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from contextlib import asynccontextmanager
 
@@ -21,6 +25,8 @@ from app.database import init_pool, close_pool, get_pool
 from app.worker_client import embed_query, trigger_sync
 from app.auth import router as auth_router, AuthRequired, require_web_auth, require_api_auth
 from app.vault_client import get_mail_password, get_mail_account
+
+log = logging.getLogger(__name__)
 
 
 async def _save_to_sent(msg: MIMEText, account: dict, email_addr: str, password: str):
@@ -40,6 +46,46 @@ async def _save_to_sent(msg: MIMEText, account: dict, email_addr: str, password:
         await asyncio.to_thread(_blocking_save)
     except Exception as e:
         logging.error(f"Failed to save to Sent folder for {email_addr}: {e}")
+
+
+async def _send_smtp(msg: MIMEText, account: dict, email_addr: str, password: str):
+    """Send email via SMTP without blocking the event loop."""
+    def _blocking_send():
+        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
+            smtp.login(email_addr, password)
+            smtp.send_message(msg)
+
+    await asyncio.to_thread(_blocking_send)
+
+
+def _format_date(dt) -> str:
+    """Format datetime for display: Today shows time, recent shows day, older shows date."""
+    if not dt:
+        return ""
+    now = datetime.now(timezone.utc)
+    if hasattr(dt, "tzinfo") and dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    diff = now - dt
+    if diff.days == 0:
+        return dt.strftime("%-I:%M %p")
+    elif diff.days == 1:
+        return "Yesterday"
+    elif diff.days < 7:
+        return dt.strftime("%A")
+    elif dt.year == now.year:
+        return dt.strftime("%b %-d")
+    else:
+        return dt.strftime("%b %-d, %Y")
+
+
+def _clean_from(from_addr: str) -> str:
+    """Extract display name from 'Name <email>' format."""
+    if not from_addr:
+        return "Unknown"
+    m = re.match(r'^"?([^"<]+)"?\s*<', from_addr)
+    if m:
+        return m.group(1).strip()
+    return from_addr.split("@")[0]
 
 
 @asynccontextmanager
@@ -263,21 +309,27 @@ async def _inbox_html(
 
     emails_list = [{
         "id": r["id"], "from_addr": r["from_addr"],
+        "from_display": _clean_from(r["from_addr"]),
         "subject": r["subject"] or "(no subject)",
-        "date_sent": str(r["date_sent"])[:16] if r["date_sent"] else "",
+        "date_sent": _format_date(r["date_sent"]),
         "snippet": snippet(r["body_text"]),
         "is_read": r["is_read"],
     } for r in rows]
 
     total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
 
-    # Build folder nav data
+    # Build folder nav data with unread counts
     folder_map = {r["folder"]: r["cnt"] for r in folder_counts}
+    async with pool.acquire() as conn:
+        inbox_unread = await conn.fetchval(
+            "SELECT COUNT(*) FROM emails WHERE owner_email = $1 AND folder = 'INBOX' "
+            "AND is_read = FALSE AND deleted_at IS NULL", user_email,
+        )
     folders = [
-        {"name": "INBOX", "label": "inbox", "count": folder_map.get("INBOX", 0)},
-        {"name": "Sent", "label": "sent", "count": folder_map.get("Sent", 0)},
-        {"name": "Drafts", "label": "drafts", "count": folder_map.get("Drafts", 0)},
-        {"name": "Trash", "label": "trash", "count": trash_count},
+        {"name": "INBOX", "label": "Inbox", "count": folder_map.get("INBOX", 0), "unread": inbox_unread},
+        {"name": "Sent", "label": "Sent", "count": folder_map.get("Sent", 0), "unread": 0},
+        {"name": "Drafts", "label": "Drafts", "count": folder_map.get("Drafts", 0), "unread": 0},
+        {"name": "Trash", "label": "Trash", "count": trash_count, "unread": 0},
     ]
 
     # Ike data (only if ike is on)
@@ -309,7 +361,13 @@ async def email_detail(email_id: int, email: str = Depends(require_web_auth)):
             )
     if not row:
         return HTMLResponse('<div style="color:var(--muted)">Not found</div>')
-    return HTMLResponse(_render("partials/email_detail.html", email=dict(row)))
+    email_data = dict(row)
+    email_data["date_display"] = _format_date(row["date_sent"])
+    email_data["from_display"] = _clean_from(row["from_addr"])
+    # Detect if body is HTML for sandboxed rendering
+    body = row["body_text"] or ""
+    email_data["is_html"] = bool(re.search(r"<(html|body|div|p|table|br)\b", body, re.I))
+    return HTMLResponse(_render("partials/email_detail.html", email=email_data))
 
 
 @app.get("/search", response_class=HTMLResponse)
@@ -345,8 +403,9 @@ async def search_results(
 
     emails_list = [{
         "id": r["id"], "from_addr": r["from_addr"],
+        "from_display": _clean_from(r["from_addr"]),
         "subject": r["subject"] or "(no subject)",
-        "date_sent": str(r["date_sent"])[:16] if r["date_sent"] else "",
+        "date_sent": _format_date(r["date_sent"]),
         "snippet": snippet(r["body_text"]),
         "is_read": r["is_read"],
     } for r in rows]
@@ -548,9 +607,7 @@ async def send_email_htmx(request: Request, email: str = Depends(require_web_aut
         msg["To"] = to
         msg["Subject"] = subject
 
-        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
-            smtp.login(email, password)
-            smtp.send_message(msg)
+        await _send_smtp(msg, account, email, password)
         await _save_to_sent(msg, account, email, password)
 
         # Soft-delete the draft if sending from one
@@ -611,29 +668,27 @@ async def imap_diagnostics(email: str = Depends(require_web_auth)):
         if not password:
             error = "Could not fetch credentials"
         else:
-            imap = imaplib.IMAP4_SSL(host, port)
-            imap.login(email, password)
+            def _blocking_imap_diag():
+                _imap = imaplib.IMAP4_SSL(host, port)
+                _imap.socket().settimeout(15)
+                _imap.login(email, password)
+                folders_out = []
+                _, folder_data = _imap.list()
+                for item in (folder_data or []):
+                    if isinstance(item, bytes):
+                        parts = item.decode().split('"')
+                        folder_name = parts[-2].strip() if len(parts) >= 3 and parts[-2].strip() else item.decode().split()[-1]
+                        try:
+                            st, d = _imap.select(folder_name, readonly=True)
+                            if st == "OK" and d[0]:
+                                folders_out.append({"name": folder_name, "count": int(d[0])})
+                        except Exception:
+                            folders_out.append({"name": folder_name, "count": "?"})
+                _imap.logout()
+                return folders_out
+
+            imap_folders = await asyncio.to_thread(_blocking_imap_diag)
             connected = True
-
-            # List folders with message counts
-            _, folder_data = imap.list()
-            for item in (folder_data or []):
-                if isinstance(item, bytes):
-                    parts = item.decode().split('"')
-                    if len(parts) >= 3:
-                        folder_name = parts[-2].strip() if parts[-2].strip() else parts[-1].strip()
-                    else:
-                        folder_name = item.decode().split()[-1]
-
-                    try:
-                        status, data = imap.select(folder_name, readonly=True)
-                        if status == "OK" and data[0]:
-                            count = int(data[0])
-                            imap_folders.append({"name": folder_name, "count": count})
-                    except Exception:
-                        imap_folders.append({"name": folder_name, "count": "?"})
-
-            imap.logout()
     except Exception as e:
         error = str(e)
 
@@ -872,9 +927,7 @@ async def api_reply(email_id: int, request: Request, email: str = Depends(requir
             msg["In-Reply-To"] = row["message_id"]
             msg["References"] = row["message_id"]
 
-        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
-            smtp.login(email, password)
-            smtp.send_message(msg)
+        await _send_smtp(msg, account, email, password)
         await _save_to_sent(msg, account, email, password)
 
         return {"status": "sent", "to": to, "subject": subject}
@@ -923,9 +976,7 @@ async def api_forward(email_id: int, request: Request, email: str = Depends(requ
         msg["To"] = to
         msg["Subject"] = subject
 
-        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
-            smtp.login(email, password)
-            smtp.send_message(msg)
+        await _send_smtp(msg, account, email, password)
         await _save_to_sent(msg, account, email, password)
 
         return {"status": "forwarded", "to": to, "subject": subject}
@@ -957,9 +1008,7 @@ async def api_send(request: Request, email: str = Depends(require_api_auth)):
         msg["To"] = to
         msg["Subject"] = subject
 
-        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
-            smtp.login(email, password)
-            smtp.send_message(msg)
+        await _send_smtp(msg, account, email, password)
         await _save_to_sent(msg, account, email, password)
 
         return {"status": "sent", "to": to}

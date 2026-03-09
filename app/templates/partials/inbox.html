@@ -17,7 +17,9 @@
       <button class="btn-icon" :disabled="syncing" title="Sync"
         @click="syncing = true"
         hx-post="/sync" hx-target="#sync-status" hx-swap="innerHTML"
-        @htmx:after-swap.camel="syncing = false">
+        @htmx:after-swap.camel="syncing = false"
+        @htmx:response-error.camel="syncing = false; document.getElementById('sync-status').innerHTML = '<span style=color:var(--red)>Sync failed</span>'"
+        @htmx:send-error.camel="syncing = false; document.getElementById('sync-status').innerHTML = '<span style=color:var(--red)>Network error</span>'">
         <span x-show="!syncing">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         </span>
@@ -43,14 +45,24 @@
     {% if not emails %}
     <div class="empty-state">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="3 9 12 15 21 9"/></svg>
-      <p>No emails{% if ike_quadrant %} in this quadrant{% endif %}.</p>
+      {% if ike_quadrant %}
+      <p>No emails in this quadrant.</p>
+      <button class="btn btn-secondary" style="margin-top:0.75rem;"
+        hx-get="/inbox?folder={{ active_folder }}&ike=all" hx-target="#content" hx-swap="innerHTML">Show all</button>
+      {% elif is_trash %}
+      <p>Trash is empty.</p>
+      {% else %}
+      <p>No emails here.</p>
+      <button class="btn btn-primary" style="margin-top:0.75rem;"
+        onclick="htmx.ajax('GET', '/compose', {target: '#content', swap: 'innerHTML'})">Compose</button>
+      {% endif %}
     </div>
     {% endif %}
     {% if total > per_page %}
     <div class="pagination">
-      {% if page > 1 %}<a href="#" hx-get="/inbox?folder={{ active_folder }}&page={{ page - 1 }}{% if ike_on %}&ike={{ ike_quadrant or 'all' }}{% endif %}" hx-target="#content" hx-swap="innerHTML">&larr; Prev</a>{% endif %}
+      {% if page > 1 %}<a href="#" hx-get="/inbox?folder={{ active_folder }}&page={{ page - 1 }}{% if ike_on %}&ike={{ ike_quadrant or 'all' }}{% endif %}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true">&larr; Prev</a>{% endif %}
       <span>{{ page }} / {{ total_pages }}</span>
-      {% if page < total_pages %}<a href="#" hx-get="/inbox?folder={{ active_folder }}&page={{ page + 1 }}{% if ike_on %}&ike={{ ike_quadrant or 'all' }}{% endif %}" hx-target="#content" hx-swap="innerHTML">Next &rarr;</a>{% endif %}
+      {% if page < total_pages %}<a href="#" hx-get="/inbox?folder={{ active_folder }}&page={{ page + 1 }}{% if ike_on %}&ike={{ ike_quadrant or 'all' }}{% endif %}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true">Next &rarr;</a>{% endif %}
     </div>
     {% endif %}
   </div>

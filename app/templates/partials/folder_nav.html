@@ -3,8 +3,13 @@
   <button class="folder-tab"
     :class="{ active: folder === '{{ f.name }}' }"
     @click="folder = '{{ f.name }}'"
-    hx-get="/inbox?folder={{ f.name }}" hx-target="#content" hx-swap="innerHTML">
-    {{ f.label }} <span style="font-size:0.7rem;color:var(--muted);">({{ f.count }})</span>
+    hx-get="/inbox?folder={{ f.name }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true">
+    {{ f.label }}
+    {% if f.unread > 0 %}
+    <span class="folder-badge">{{ f.unread }}</span>
+    {% else %}
+    <span style="font-size:0.7rem;color:var(--muted);">({{ f.count }})</span>
+    {% endif %}
   </button>
   {% endfor %}
 </div>

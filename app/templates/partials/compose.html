@@ -1,12 +1,13 @@
 <div class="compose-form" x-data="{ sending: false, saving: false }">
-  <form hx-post="/send" hx-target="#send-result" hx-swap="innerHTML"
+  <form id="compose-form" hx-post="/send" hx-target="#send-result" hx-swap="innerHTML"
     @htmx:before-request.camel="sending = true"
-    @htmx:after-swap.camel="sending = false">
+    @htmx:after-swap.camel="sending = false; if(document.querySelector('#send-result .flash-ok')) { $el.reset(); }">
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     {% if draft_id %}<input type="hidden" name="draft_id" value="{{ draft_id }}">{% endif %}
     <div class="form-field">
       <label>To</label>
-      <input class="form-input" type="email" name="to" required value="{{ draft_to or '' }}" placeholder="recipient@example.com">
+      <input class="form-input" type="text" name="to" required value="{{ draft_to or '' }}"
+        placeholder="recipient@example.com" autocomplete="email">
     </div>
     <div class="form-field">
       <label>Subject</label>
@@ -34,7 +35,10 @@
           }).then(r => r.text()).then(html => {
             document.getElementById('send-result').innerHTML = html;
             saving = false;
-          }).catch(() => { saving = false; })">
+          }).catch(() => {
+            document.getElementById('send-result').innerHTML = '<div class=\'flash flash-err\'>Draft save failed — check your connection.</div>';
+            saving = false;
+          })">
         <span x-show="!saving">Save Draft</span>
         <span x-show="saving" x-cloak><span class="loading-spinner"></span></span>
       </button>

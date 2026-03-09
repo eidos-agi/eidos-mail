@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a0a0a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10,10 +10,14 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='80'>&#9993;</text></svg>">
 <title>Eidos Mail</title>
 <link rel="stylesheet" href="/static/app.css">
-<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </head>
 <body x-data="{ tab: '{{ active_tab }}' }" x-cloak>
+
+<!-- Global loading bar (H3) -->
+<div id="global-loading" class="global-loading-bar"></div>
+
 <div class="app-shell">
 
   <!-- Header -->
@@ -79,6 +83,7 @@
 
 <script src="/static/app.js"></script>
 <script>
+// Redirect to login on auth failures
 document.body.addEventListener('htmx:beforeSwap', function(evt) {
   if (evt.detail.xhr.responseURL && evt.detail.xhr.responseURL.includes('/auth/login')) {
     window.location.href = '/auth/login';

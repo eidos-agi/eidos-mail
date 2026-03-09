@@ -8,12 +8,12 @@
   {% endif %}
   <!-- Main content -->
   <div class="email-inner" style="display:flex;align-items:flex-start;gap:0.75rem;width:100%;position:relative;z-index:1;background:inherit;"
-    hx-get="/email/{{ e.id }}" hx-target="#detail-{{ e.id }}" hx-swap="innerHTML">
+    hx-get="/email/{{ e.id }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="/email/{{ e.id }}">
     {% if not e.is_read and not is_trash %}<div class="unread-dot"></div>{% endif %}
     <div class="avatar" data-from="{{ e.from_addr }}"></div>
     <div class="email-body">
       <div class="email-top">
-        <span class="email-from">{{ e.from_addr.split('<')[0].strip() or e.from_addr }}</span>
+        <span class="email-from">{{ e.from_display or e.from_addr.split('<')[0].strip() or e.from_addr }}</span>
         <span class="email-date">{{ e.date_sent }}</span>
       </div>
       <div class="email-subject">{{ e.subject }}</div>
@@ -24,5 +24,4 @@
       onclick="event.stopPropagation(); quickAction('undelete', {{ e.id }}, this)">restore</button>
     {% endif %}
   </div>
-  <div id="detail-{{ e.id }}"></div>
 </div>
