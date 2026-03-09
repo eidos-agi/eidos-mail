@@ -9,11 +9,12 @@ pool: asyncpg.Pool | None = None
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
-async def init_pool():
-    """Create the connection pool and run migrations."""
+async def init_pool(run_migrations: bool = True):
+    """Create the connection pool and optionally run migrations."""
     global pool
     pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
-    await run_migrations()
+    if run_migrations:
+        await _run_migrations()
 
 
 async def close_pool():
@@ -31,7 +32,7 @@ async def get_pool() -> asyncpg.Pool:
     return pool
 
 
-async def run_migrations():
+async def _run_migrations():
     """Run SQL migration files in order."""
     if pool is None:
         raise RuntimeError("Database pool not initialized")

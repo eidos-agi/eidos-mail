@@ -19,3 +19,7 @@ OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
 OIDC_REDIRECT_URI = os.environ.get("OIDC_REDIRECT_URI", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
+
+# Worker service (web -> worker internal HTTP)
+WORKER_URL = os.environ.get("WORKER_URL", "http://localhost:8001")
+WORKER_SECRET = os.environ.get("WORKER_SECRET", "")

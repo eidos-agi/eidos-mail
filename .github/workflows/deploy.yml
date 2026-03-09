@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 jobs:
-  deploy:
+  deploy-web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,7 +13,20 @@ jobs:
       - name: Install Railway CLI
         run: curl -fsSL https://railway.com/install.sh | sh
 
-      - name: Deploy
+      - name: Deploy Web
         run: railway up --service ${{ vars.RAILWAY_SERVICE_ID }} --environment production --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  deploy-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: curl -fsSL https://railway.com/install.sh | sh
+
+      - name: Deploy Worker
+        run: railway up --service ${{ vars.RAILWAY_WORKER_SERVICE_ID }} --environment production --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

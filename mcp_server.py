@@ -159,6 +159,91 @@ def send_email(to: str, subject: str, body: str, email: str = DEFAULT_EMAIL) -> 
 
 
 @mcp.tool()
+def mark_read(
+    ids: list[int], read: bool = True, email: str = DEFAULT_EMAIL,
+) -> dict:
+    """Mark one or more emails as read (or unread).
+
+    Args:
+        ids: List of email IDs to mark
+        read: True to mark read, False to mark unread (default True)
+        email: Email account (default daniel@eidosagi.com)
+    """
+    resp = httpx.post(
+        f"{MAIL_API}/api/emails/mark-read",
+        json={"ids": ids, "read": read},
+        params={"email": email},
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
+def delete_email(email_id: int, email: str = DEFAULT_EMAIL) -> dict:
+    """Soft-delete an email.
+
+    Args:
+        email_id: The email ID to delete
+        email: Email account (default daniel@eidosagi.com)
+    """
+    resp = httpx.post(
+        f"{MAIL_API}/api/emails/{email_id}/delete",
+        params={"email": email},
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
+def reply_email(
+    email_id: int, body: str, email: str = DEFAULT_EMAIL,
+) -> dict:
+    """Reply to an email. Adds proper threading headers and quotes the original.
+
+    Args:
+        email_id: The email ID to reply to
+        body: Your reply text
+        email: Email account (default daniel@eidosagi.com)
+    """
+    resp = httpx.post(
+        f"{MAIL_API}/api/emails/{email_id}/reply",
+        json={"body": body},
+        params={"email": email},
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
+def forward_email(
+    email_id: int, to: str, body: str = "", email: str = DEFAULT_EMAIL,
+) -> dict:
+    """Forward an email to another recipient.
+
+    Args:
+        email_id: The email ID to forward
+        to: Recipient email address
+        body: Optional note to include above the forwarded message
+        email: Email account (default daniel@eidosagi.com)
+    """
+    resp = httpx.post(
+        f"{MAIL_API}/api/emails/{email_id}/forward",
+        json={"to": to, "body": body},
+        params={"email": email},
+        headers=_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool()
 def sync_inbox(email: str = DEFAULT_EMAIL) -> dict:
     """Trigger IMAP sync to fetch new emails from the mail server.
 

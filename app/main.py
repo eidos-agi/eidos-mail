@@ -17,8 +17,7 @@ from pathlib import Path
 
 from app.config import SESSION_SECRET
 from app.database import init_pool, close_pool, get_pool
-from app.sync import sync_emails_for_user
-from app.embeddings import encode_query
+from app.worker_client import embed_query, trigger_sync
 from app.auth import router as auth_router, AuthRequired, require_web_auth, require_api_auth
 from app.vault_client import get_mail_password, get_mail_account
 
@@ -270,7 +269,11 @@ async def search_results(
     if not q or len(q) < 2:
         return HTMLResponse("")
 
-    vec_str = encode_query(q)
+    try:
+        vec_str = await embed_query(q)
+    except Exception:
+        return HTMLResponse('<div style="color:var(--muted)">Search unavailable — worker is down.</div>')
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -325,7 +328,10 @@ async def compose_page(
 @app.post("/sync", response_class=HTMLResponse)
 async def web_sync(email: str = Depends(require_web_auth)):
     """Trigger per-user IMAP sync from web UI."""
-    stats = await sync_emails_for_user(email)
+    try:
+        stats = await trigger_sync(email)
+    except Exception:
+        return HTMLResponse('<span style="color:#ef5350">Sync unavailable — worker is down.</span>')
     new = stats.get("total_new", 0)
     if "error" in stats:
         return HTMLResponse(f'<span style="color:#ef5350">{escape(stats["error"])}</span>')
@@ -580,7 +586,10 @@ async def infra_dashboard(email: str = Depends(require_web_auth)):
 @app.post("/api/sync")
 async def api_sync(email: str = Depends(require_api_auth)):
     """Trigger per-user IMAP sync."""
-    stats = await sync_emails_for_user(email)
+    try:
+        stats = await trigger_sync(email)
+    except Exception as e:
+        return JSONResponse({"error": f"Worker error: {e}"}, status_code=503)
     return JSONResponse({"status": "ok", "stats": stats})
 
 
@@ -589,7 +598,11 @@ async def api_search(
     q: str = Query(..., min_length=2),
     email: str = Depends(require_api_auth),
 ):
-    vec_str = encode_query(q)
+    try:
+        vec_str = await embed_query(q)
+    except Exception as e:
+        return JSONResponse({"error": f"Search unavailable: {e}"}, status_code=503)
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -633,6 +646,144 @@ async def api_email(email_id: int, email: str = Depends(require_api_auth)):
     if not row:
         return JSONResponse({"error": "not found"}, status_code=404)
     return _row_to_dict(row)
+
+
+@app.post("/api/emails/mark-read")
+async def api_mark_read(request: Request, email: str = Depends(require_api_auth)):
+    """Mark one or more emails as read or unread."""
+    data = await request.json()
+    ids = data.get("ids", [])
+    read = data.get("read", True)
+
+    if not ids or not isinstance(ids, list):
+        return JSONResponse({"error": "ids (list of ints) required"}, status_code=400)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        updated = await conn.execute(
+            "UPDATE emails SET is_read = $1 "
+            "WHERE id = ANY($2::int[]) AND owner_email = $3 AND deleted_at IS NULL",
+            read, ids, email,
+        )
+    count = int(updated.split()[-1])
+    return {"status": "ok", "updated": count}
+
+
+@app.post("/api/emails/{email_id}/delete")
+async def api_delete_email(email_id: int, email: str = Depends(require_api_auth)):
+    """Soft-delete an email."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE emails SET deleted_at = NOW() "
+            "WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+            email_id, email,
+        )
+    if result == "UPDATE 0":
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"status": "deleted", "id": email_id}
+
+
+@app.post("/api/emails/{email_id}/reply")
+async def api_reply(email_id: int, request: Request, email: str = Depends(require_api_auth)):
+    """Reply to an email with proper threading headers."""
+    data = await request.json()
+    body = data.get("body", "").strip()
+    if not body:
+        return JSONResponse({"error": "body is required"}, status_code=400)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT from_addr, subject, message_id, body_text FROM emails "
+            "WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+            email_id, email,
+        )
+    if not row:
+        return JSONResponse({"error": "email not found"}, status_code=404)
+
+    to = row["from_addr"]
+    subject = row["subject"] or ""
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+
+    # Build quoted reply
+    original_snippet = (row["body_text"] or "")[:500]
+    full_body = f"{body}\n\n---\n> {original_snippet}"
+
+    try:
+        account = await get_mail_account(email)
+        if not account:
+            return JSONResponse({"error": f"No mail account for {email}"}, status_code=400)
+        password = await get_mail_password(email)
+        if not password:
+            return JSONResponse({"error": "Could not fetch credentials"}, status_code=500)
+
+        msg = MIMEText(full_body)
+        msg["From"] = email
+        msg["To"] = to
+        msg["Subject"] = subject
+        if row["message_id"]:
+            msg["In-Reply-To"] = row["message_id"]
+            msg["References"] = row["message_id"]
+
+        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
+            smtp.login(email, password)
+            smtp.send_message(msg)
+
+        return {"status": "sent", "to": to, "subject": subject}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/emails/{email_id}/forward")
+async def api_forward(email_id: int, request: Request, email: str = Depends(require_api_auth)):
+    """Forward an email to another recipient."""
+    data = await request.json()
+    to = data.get("to", "").strip()
+    note = data.get("body", "").strip()
+
+    if not to:
+        return JSONResponse({"error": "to is required"}, status_code=400)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT from_addr, subject, body_text, date_sent FROM emails "
+            "WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+            email_id, email,
+        )
+    if not row:
+        return JSONResponse({"error": "email not found"}, status_code=404)
+
+    subject = row["subject"] or ""
+    if not subject.lower().startswith("fwd:"):
+        subject = f"Fwd: {subject}"
+
+    original = row["body_text"] or ""
+    date_str = str(row["date_sent"])[:16] if row["date_sent"] else ""
+    body = f"{note}\n\n------- Forwarded message -------\nFrom: {row['from_addr']}\nDate: {date_str}\nSubject: {row['subject']}\n\n{original}"
+
+    try:
+        account = await get_mail_account(email)
+        if not account:
+            return JSONResponse({"error": f"No mail account for {email}"}, status_code=400)
+        password = await get_mail_password(email)
+        if not password:
+            return JSONResponse({"error": "Could not fetch credentials"}, status_code=500)
+
+        msg = MIMEText(body)
+        msg["From"] = email
+        msg["To"] = to
+        msg["Subject"] = subject
+
+        with smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"]) as smtp:
+            smtp.login(email, password)
+            smtp.send_message(msg)
+
+        return {"status": "forwarded", "to": to, "subject": subject}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/api/send")

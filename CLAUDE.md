@@ -63,6 +63,10 @@ eidos-mail/
 - `GET /api/emails?recent=N` — recent emails (JSON)
 - `GET /api/emails/{id}` — single email (JSON)
 - `POST /api/send` — send email (JSON)
+- `POST /api/emails/mark-read` — mark emails read/unread (JSON: {ids, read})
+- `POST /api/emails/{id}/delete` — soft-delete an email
+- `POST /api/emails/{id}/reply` — reply with threading (JSON: {body})
+- `POST /api/emails/{id}/forward` — forward email (JSON: {to, body})
 - `GET /health` — health check
 
 ## Development

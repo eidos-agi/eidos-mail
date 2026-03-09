@@ -195,4 +195,32 @@ steps:
     method: GET
     expect_status: 404
   why: auth returns 404 before checking if email exists
-updated_at: '2026-03-09T09:27:00Z'
+- name: POST /api/emails/mark-read returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/mark-read
+    method: POST
+    expect_status: 404
+  why: mark-read endpoint hidden without auth
+- name: POST /api/emails/1/delete returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/1/delete
+    method: POST
+    expect_status: 404
+  why: delete endpoint hidden without auth
+- name: POST /api/emails/1/reply returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/1/reply
+    method: POST
+    expect_status: 404
+  why: reply endpoint hidden without auth
+- name: POST /api/emails/1/forward returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/1/forward
+    method: POST
+    expect_status: 404
+  why: forward endpoint hidden without auth
+updated_at: '2026-03-09T11:00:00Z'

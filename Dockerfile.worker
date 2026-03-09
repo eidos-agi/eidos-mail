@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# System deps for building native extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU-only PyTorch first (much smaller than default CUDA version)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Heavy ML deps that rarely change
+RUN pip install --no-cache-dir \
+    sentence-transformers==3.3.1 \
+    scipy \
+    scikit-learn \
+    numpy
+
+COPY requirements-worker.txt .
+RUN pip install --no-cache-dir -r requirements-worker.txt
+
+COPY . .
+
+ENV PORT=8001
+EXPOSE 8001
+
+CMD python -m uvicorn app.worker:app --host 0.0.0.0 --port $PORT

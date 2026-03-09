@@ -203,7 +203,7 @@ async def test_search_results(app_client, pool_with_emails):
         [make_record(id=1, from_addr="a@b.com", subject="Found it",
                      date_sent=None, body_text="result body", is_read=True)],
     ]
-    with patch("app.main.encode_query", return_value="[" + ",".join(["0.1"] * 384) + "]"):
+    with patch("app.main.embed_query", return_value="[" + ",".join(["0.1"] * 384) + "]"):
         resp = await app_client.get("/search/results?q=test query")
     assert resp.status_code == 200
 
@@ -324,7 +324,7 @@ async def test_send_success(app_client, pool_with_emails):
 
 @pytest.mark.asyncio
 async def test_sync(app_client):
-    with patch("app.main.sync_emails_for_user", return_value={"total_new": 5}):
+    with patch("app.main.trigger_sync", return_value={"total_new": 5}):
         resp = await app_client.post("/sync")
     assert resp.status_code == 200
     assert "synced (5 new)" in resp.text
@@ -332,7 +332,7 @@ async def test_sync(app_client):
 
 @pytest.mark.asyncio
 async def test_sync_error(app_client):
-    with patch("app.main.sync_emails_for_user", return_value={"error": "IMAP connection failed"}):
+    with patch("app.main.trigger_sync", return_value={"error": "IMAP connection failed"}):
         resp = await app_client.post("/sync")
     assert resp.status_code == 200
     assert "IMAP connection failed" in resp.text
