@@ -24,15 +24,22 @@ from app.vault_client import get_mail_password, get_mail_account
 
 
 async def _save_to_sent(msg: MIMEText, account: dict, email_addr: str, password: str):
-    """Append a sent message to the IMAP Sent folder."""
-    try:
+    """Append a sent message to the IMAP Sent folder (non-blocking)."""
+    import asyncio
+    import logging
+
+    def _blocking_save():
         imap = imaplib.IMAP4_SSL(account["imap_host"], account["imap_port"])
+        imap.socket().settimeout(30)
         imap.login(email_addr, password)
         import time as _time
         imap.append("Sent", "\\Seen", imaplib.Time2Internaldate(_time.time()), msg.as_bytes())
         imap.logout()
-    except Exception:
-        pass  # Best-effort — don't fail the send
+
+    try:
+        await asyncio.to_thread(_blocking_save)
+    except Exception as e:
+        logging.error(f"Failed to save to Sent folder for {email_addr}: {e}")
 
 
 @asynccontextmanager

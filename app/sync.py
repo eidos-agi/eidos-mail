@@ -10,6 +10,8 @@ Strategy:
 """
 
 import imaplib
+import logging
+import re
 import email
 import email.policy
 from email.utils import parsedate_to_datetime
@@ -20,7 +22,10 @@ from app.embeddings import encode
 from app.vault_client import get_mail_password, get_mail_account
 from app.scoring import score_email
 
+log = logging.getLogger(__name__)
+
 SYNC_FOLDERS = ["INBOX", "Sent"]
+IMAP_TIMEOUT = 30  # seconds
 
 
 def extract_body(msg) -> str:
@@ -71,19 +76,30 @@ def parse_date(msg) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 def _imap_connect(host: str, port: int, email_addr: str, password: str) -> imaplib.IMAP4_SSL:
-    """Open and authenticate a single IMAP connection."""
+    """Open and authenticate a single IMAP connection with timeout."""
     imap = imaplib.IMAP4_SSL(host, port)
+    imap.socket().settimeout(IMAP_TIMEOUT)
     imap.login(email_addr, password)
     return imap
+
+
+def _imap_close(imap: imaplib.IMAP4_SSL):
+    """Safely close an IMAP connection."""
+    try:
+        imap.logout()
+    except Exception:
+        pass
 
 
 def _select_folder(imap: imaplib.IMAP4_SSL, folder: str) -> tuple[int, int]:
     """Select folder, return (message_count, uidvalidity)."""
     _, data = imap.select(folder, readonly=True)
     msg_count = int(data[0]) if data[0] else 0
-    # Get UIDVALIDITY
-    _, resp = imap.response("UIDVALIDITY")
-    uidvalidity = int(resp[0]) if resp and resp[0] else 0
+    # Get UIDVALIDITY from untagged responses (standard per RFC 3501)
+    uidvalidity = 0
+    uv = imap.untagged_responses.get("UIDVALIDITY")
+    if uv:
+        uidvalidity = int(uv[0])
     return msg_count, uidvalidity
 
 
@@ -100,7 +116,7 @@ def _fetch_flags(imap: imaplib.IMAP4_SSL, uids: list[int]) -> dict[int, set]:
     if not uids:
         return {}
     uid_str = ",".join(str(u) for u in uids)
-    _, data = imap.uid("fetch", uid_str, "(FLAGS)")
+    _, data = imap.uid("fetch", uid_str, "(FLAGS UID)")
     flags = {}
     for item in data:
         if isinstance(item, tuple):
@@ -108,28 +124,39 @@ def _fetch_flags(imap: imaplib.IMAP4_SSL, uids: list[int]) -> dict[int, set]:
         if not isinstance(item, bytes):
             continue
         text = item.decode(errors="replace")
-        # Parse "N (UID X FLAGS (\Seen \Flagged))"
-        import re
-        uid_match = re.search(r"UID (\d+)", text)
-        flags_match = re.search(r"FLAGS \(([^)]*)\)", text)
+        # Order-independent parsing (FLAGS and UID can appear in any order)
+        uid_match = re.search(r"UID\s+(\d+)", text)
+        flags_match = re.search(r"FLAGS\s+\(([^)]*)\)", text)
         if uid_match:
             uid = int(uid_match.group(1))
-            flag_set = set()
-            if flags_match:
-                flag_set = set(flags_match.group(1).split())
+            flag_set = set(flags_match.group(1).split()) if flags_match else set()
             flags[uid] = flag_set
     return flags
 
 
 def _fetch_messages(imap: imaplib.IMAP4_SSL, uids: list[int]) -> list[tuple[int, bytes]]:
-    """Fetch full RFC822 messages for given UIDs."""
+    """Fetch full RFC822 messages for given UIDs in a single batch."""
+    if not uids:
+        return []
+
+    # Batch fetch — single IMAP command for all UIDs
+    uid_str = ",".join(str(u) for u in uids)
+    _, msg_data = imap.uid("fetch", uid_str, "(UID RFC822)")
+
     results = []
-    for uid in uids:
-        _, msg_data = imap.uid("fetch", str(uid).encode(), "(RFC822)")
-        if msg_data[0] is None:
-            continue
-        raw = msg_data[0][1]
-        results.append((uid, raw))
+    # Response is pairs: (header_bytes, body_bytes), closing_bytes
+    i = 0
+    while i < len(msg_data):
+        item = msg_data[i]
+        if isinstance(item, tuple) and len(item) == 2:
+            header_text = item[0].decode(errors="replace")
+            raw_body = item[1]
+            uid_match = re.search(r"UID\s+(\d+)", header_text)
+            if uid_match:
+                uid = int(uid_match.group(1))
+                results.append((uid, raw_body))
+        i += 1
+
     return results
 
 
@@ -171,6 +198,7 @@ async def sync_emails_for_user(
         )
 
     stats = {"folders": {}, "total_new": 0, "total_flag_updates": 0, "total_deletions": 0}
+    imap = None
 
     try:
         # Single IMAP connection for all folders
@@ -189,8 +217,6 @@ async def sync_emails_for_user(
             stats["total_new"] += folder_stats.get("new", 0)
             stats["total_flag_updates"] += folder_stats.get("flag_updates", 0)
             stats["total_deletions"] += folder_stats.get("deletions", 0)
-
-        imap.logout()
 
         # Batch embed new emails
         if new_email_ids:
@@ -215,6 +241,9 @@ async def sync_emails_for_user(
                 user_email, str(e),
             )
         raise
+    finally:
+        if imap:
+            _imap_close(imap)
 
     return stats
 
@@ -263,19 +292,19 @@ async def _sync_folder(
     else:
         highest_uid = state["highest_uid"] or 0
 
-    # --- Fetch new messages ---
-    if need_full:
-        server_uids = _fetch_uids(imap, "ALL")
-    elif highest_uid > 0:
-        # Incremental: only UIDs above our watermark
-        server_uids = _fetch_uids(imap, f"UID {highest_uid + 1}:*")
-        # IMAP quirk: UID X:* always returns at least UID X even if nothing new
-        server_uids = [u for u in server_uids if u > highest_uid]
-    else:
-        server_uids = _fetch_uids(imap, "ALL")
+    # --- Fetch ALL UIDs once (used for incremental, flags, and deletion detection) ---
+    all_server_uids = _fetch_uids(imap, "ALL")
+    all_server_uid_set = set(all_server_uids)
 
     fstats["server_count"] = msg_count
-    fstats["to_fetch"] = len(server_uids)
+
+    # Determine which UIDs are new
+    if need_full:
+        new_uids_candidate = all_server_uids
+    elif highest_uid > 0:
+        new_uids_candidate = [u for u in all_server_uids if u > highest_uid]
+    else:
+        new_uids_candidate = all_server_uids
 
     # Get already-synced UIDs for dedup
     async with pool.acquire() as conn:
@@ -286,7 +315,8 @@ async def _sync_folder(
         synced_uids = {r["uid"] for r in rows}
 
     # Filter out already-synced
-    uids_to_fetch = [u for u in server_uids if u not in synced_uids]
+    uids_to_fetch = [u for u in new_uids_candidate if u not in synced_uids]
+    fstats["to_fetch"] = len(uids_to_fetch)
 
     if uids_to_fetch:
         messages = _fetch_messages(imap, uids_to_fetch)
@@ -325,10 +355,8 @@ async def _sync_folder(
                     new_email_ids.append(row["id"])
                     fstats["new"] += 1
 
-    # --- Flag sync: check read/unread for recent emails ---
-    all_server_uids = _fetch_uids(imap, "ALL") if not need_full else server_uids
+    # --- Flag sync: check read/unread for last 200 emails ---
     if all_server_uids:
-        # Only sync flags for last 200 to keep it fast
         recent_uids = all_server_uids[-200:]
         server_flags = _fetch_flags(imap, recent_uids)
 
@@ -351,7 +379,6 @@ async def _sync_folder(
                         fstats["flag_updates"] += 1
 
     # --- Detect server-side deletions ---
-    all_server_uid_set = set(all_server_uids) if all_server_uids else set()
     if synced_uids and all_server_uid_set:
         deleted_uids = synced_uids - all_server_uid_set
         if deleted_uids:
@@ -407,13 +434,15 @@ async def embed_emails(email_ids: list[int]):
 
     embeddings = encode(texts)
 
+    # Batch insert
+    data = [
+        (eid, "[" + ",".join(str(x) for x in emb) + "]")
+        for eid, emb in zip(ids, embeddings)
+    ]
     async with pool.acquire() as conn:
-        for email_id, emb in zip(ids, embeddings):
-            vec_str = "[" + ",".join(str(x) for x in emb) + "]"
-            await conn.execute(
-                """INSERT INTO email_vectors (email_id, embedding)
-                VALUES ($1, $2)
-                ON CONFLICT (email_id) DO UPDATE SET embedding = $2""",
-                email_id,
-                vec_str,
-            )
+        await conn.executemany(
+            """INSERT INTO email_vectors (email_id, embedding)
+            VALUES ($1, $2)
+            ON CONFLICT (email_id) DO UPDATE SET embedding = $2""",
+            data,
+        )
