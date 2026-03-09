@@ -2,116 +2,83 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>eidos-mail — {{ user_email }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='80'>&#9993;</text></svg>">
+<title>Eidos Mail</title>
+<link rel="stylesheet" href="/static/app.css">
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
-<style>
-  :root { --bg: #0a0a0a; --fg: #e0e0e0; --accent: #4fc3f7; --border: #333; --card: #141414; --muted: #888; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--fg); padding: 1rem; max-width: 960px; margin: 0 auto; }
-  [x-cloak] { display: none !important; }
-  h1 { color: var(--accent); font-size: 1.1rem; margin-bottom: 1rem; }
-  h2 { color: var(--accent); font-size: 0.95rem; margin-bottom: 0.8rem; }
-  .tabs { display: flex; gap: 0; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
-  .tab { padding: 0.5rem 1rem; cursor: pointer; border: 1px solid transparent; border-bottom: none; color: var(--muted); background: none; font-family: inherit; font-size: 0.85rem; }
-  .tab:hover, .tab.active { color: var(--accent); border-color: var(--border); background: var(--card); }
-  input, textarea, select { font-family: inherit; font-size: 0.85rem; background: var(--card); color: var(--fg); border: 1px solid var(--border); padding: 0.4rem 0.6rem; width: 100%; border-radius: 3px; }
-  textarea { min-height: 120px; resize: vertical; }
-  button, .btn { font-family: inherit; font-size: 0.85rem; background: var(--accent); color: #000; border: none; padding: 0.4rem 1rem; cursor: pointer; border-radius: 3px; font-weight: bold; }
-  button:hover { opacity: 0.8; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .email-row { padding: 0.6rem; border-bottom: 1px solid var(--border); cursor: pointer; }
-  .email-row:hover { background: var(--card); }
-  .email-from { color: var(--accent); font-size: 0.8rem; }
-  .email-subject { font-size: 0.85rem; margin: 0.2rem 0; }
-  .email-date { color: var(--muted); font-size: 0.75rem; }
-  .email-snippet { color: var(--muted); font-size: 0.75rem; max-height: 1.2em; overflow: hidden; }
-  .email-detail { background: var(--card); border: 1px solid var(--border); padding: 1rem; margin-top: 0.5rem; border-radius: 3px; }
-  .email-detail pre { white-space: pre-wrap; font-size: 0.8rem; margin-top: 0.5rem; color: var(--fg); }
-  .email-detail .meta { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.5rem; }
-  .search-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-  .search-bar input { flex: 1; }
-  .form-group { margin-bottom: 0.6rem; }
-  .form-group label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
-  .flash { padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 3px; font-size: 0.8rem; }
-  .flash-ok { background: #1b3a1b; color: #4caf50; border: 1px solid #2e7d32; }
-  .flash-err { background: #3a1b1b; color: #ef5350; border: 1px solid #c62828; }
-  .stats { color: var(--muted); font-size: 0.75rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
-  .loading-indicator { color: var(--accent); font-size: 0.8rem; }
-  .sync-btn { background: none; color: var(--muted); border: 1px solid var(--border); padding: 0.3rem 0.6rem; font-size: 0.75rem; font-weight: normal; }
-  .sync-btn:hover { color: var(--accent); border-color: var(--accent); }
-  .pagination { display: flex; gap: 1rem; align-items: center; justify-content: center; padding: 0.8rem 0; color: var(--muted); font-size: 0.8rem; }
-  .pagination a { color: var(--accent); text-decoration: none; }
-  .pagination a:hover { text-decoration: underline; }
-  /* Folder sub-nav */
-  .folder-nav { display: flex; gap: 0; margin-bottom: 0.8rem; border-bottom: 1px solid var(--border); }
-  .folder-tab { padding: 0.3rem 0.8rem; cursor: pointer; border: 1px solid transparent; border-bottom: none; color: var(--muted); background: none; font-family: inherit; font-size: 0.75rem; font-weight: normal; }
-  .folder-tab:hover, .folder-tab.active { color: var(--accent); border-color: var(--border); background: var(--card); }
-  .folder-count { font-size: 0.7rem; }
-  /* Pulse animation for sync */
-  .pulse { animation: pulse-anim 1.2s ease-in-out infinite; }
-  @keyframes pulse-anim {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-  /* Diagnostics styles */
-  .diag-section { }
-  .diag-title { color: var(--accent); font-size: 0.95rem; margin-bottom: 0.8rem; }
-  .diag-card { background: var(--card); border: 1px solid var(--border); padding: 0.8rem; margin-bottom: 0.6rem; border-radius: 3px; }
-  .diag-label { color: var(--accent); font-size: 0.75rem; margin-bottom: 0.3rem; font-weight: bold; }
-  .diag-value { font-size: 0.8rem; color: var(--fg); }
-  .diag-folder-row { padding: 0.15rem 0; }
-  /* Ike (Eisenhower Matrix) */
-  .ike-toggle { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem; font-size: 0.8rem; color: var(--muted); }
-  .ike-toggle input[type="checkbox"] { width: auto; accent-color: var(--accent); }
-  .ike-matrix { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 2px; margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
-  .ike-quadrant { background: var(--card); padding: 0.8rem; min-height: 120px; cursor: pointer; position: relative; transition: background 0.15s; }
-  .ike-quadrant:hover { background: #1a1a1a; }
-  .ike-quadrant.selected { border: 2px solid var(--accent); }
-  .ike-q-label { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.4rem; }
-  .ike-q-count { font-size: 1.4rem; font-weight: bold; margin-bottom: 0.2rem; }
-  .ike-dot { width: 6px; height: 6px; border-radius: 50%; position: absolute; }
-  .ike-axes { display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--muted); padding: 0.2rem 0; }
-  .ike-axis-label { font-size: 0.7rem; color: var(--muted); text-align: center; margin-top: 0.3rem; }
-  /* Unread email styling */
-  .email-row.unread { background: #0d1117; }
-  .email-row.unread .email-from { font-weight: bold; }
-  .email-row.unread .email-subject { font-weight: bold; color: var(--fg); }
-  .unread-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 0.4rem; vertical-align: middle; }
-</style>
 </head>
-<body x-data="{ tab: '{{ active_tab }}', loading: false }" x-cloak>
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-  <h1 style="margin-bottom:0;">▸ eidos-mail — {{ user_email }}</h1>
-  <div>
-    <span style="color:var(--muted);font-size:0.75rem;">{{ user_email }}</span>
-    <a href="/auth/logout" style="color:var(--muted);font-size:0.75rem;text-decoration:none;border:1px solid var(--border);padding:0.3rem 0.6rem;border-radius:3px;margin-left:0.5rem;">logout</a>
-  </div>
+<body x-data="{ tab: '{{ active_tab }}' }" x-cloak>
+<div class="app-shell">
+
+  <!-- Header -->
+  <header class="app-header">
+    <h1><span class="logo">&#9993;</span> Eidos Mail</h1>
+    <div class="header-actions">
+      <span style="font-size:0.75rem;color:var(--muted);">{{ user_email }}</span>
+      <a href="/auth/logout" class="btn-ghost" style="font-size:0.75rem;">Logout</a>
+    </div>
+  </header>
+
+  <!-- Desktop tabs -->
+  <nav class="desktop-tabs">
+    <button class="desk-tab" :class="{ active: tab === 'inbox' }"
+      @click="tab = 'inbox'; htmx.ajax('GET', '/inbox', {target: '#content', swap: 'innerHTML'})">Inbox</button>
+    <button class="desk-tab" :class="{ active: tab === 'search' }"
+      @click="tab = 'search'; htmx.ajax('GET', '/search', {target: '#content', swap: 'innerHTML'})">Search</button>
+    <button class="desk-tab" :class="{ active: tab === 'compose' }"
+      @click="tab = 'compose'; htmx.ajax('GET', '/compose', {target: '#content', swap: 'innerHTML'})">Compose</button>
+    <button class="desk-tab" :class="{ active: tab === 'imap' }"
+      @click="tab = 'imap'; htmx.ajax('GET', '/imap', {target: '#content', swap: 'innerHTML'})">IMAP</button>
+    <button class="desk-tab" :class="{ active: tab === 'infra' }"
+      @click="tab = 'infra'; htmx.ajax('GET', '/infra', {target: '#content', swap: 'innerHTML'})">Infra</button>
+  </nav>
+
+  <!-- Content -->
+  <main class="app-content">
+    <div id="content">{{ content | safe }}</div>
+  </main>
+
+  <!-- Mobile bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-btn" :class="{ active: tab === 'inbox' }"
+      @click="tab = 'inbox'; htmx.ajax('GET', '/inbox', {target: '#content', swap: 'innerHTML'})">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="3 9 12 15 21 9"/></svg>
+      </span>
+      Inbox
+    </button>
+    <button class="nav-btn" :class="{ active: tab === 'search' }"
+      @click="tab = 'search'; htmx.ajax('GET', '/search', {target: '#content', swap: 'innerHTML'})">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </span>
+      Search
+    </button>
+    <button class="nav-btn" :class="{ active: tab === 'compose' }"
+      @click="tab = 'compose'; htmx.ajax('GET', '/compose', {target: '#content', swap: 'innerHTML'})">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </span>
+      Compose
+    </button>
+    <button class="nav-btn" :class="{ active: tab === 'infra' }"
+      @click="tab = 'infra'; htmx.ajax('GET', '/infra', {target: '#content', swap: 'innerHTML'})">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </span>
+      Settings
+    </button>
+  </nav>
 </div>
-<div class="tabs">
-  <button class="tab" :class="{ active: tab === 'inbox' }"
-    @click="tab = 'inbox'; htmx.ajax('GET', '/inbox', {target: '#content', swap: 'innerHTML'})">inbox</button>
-  <button class="tab" :class="{ active: tab === 'search' }"
-    @click="tab = 'search'; htmx.ajax('GET', '/search', {target: '#content', swap: 'innerHTML'})">search</button>
-  <button class="tab" :class="{ active: tab === 'compose' }"
-    @click="tab = 'compose'; htmx.ajax('GET', '/compose', {target: '#content', swap: 'innerHTML'})">compose</button>
-  <button class="tab" :class="{ active: tab === 'imap' }"
-    @click="tab = 'imap'; htmx.ajax('GET', '/imap', {target: '#content', swap: 'innerHTML'})">imap</button>
-  <button class="tab" :class="{ active: tab === 'infra' }"
-    @click="tab = 'infra'; htmx.ajax('GET', '/infra', {target: '#content', swap: 'innerHTML'})">infra</button>
-</div>
-<span class="loading-indicator" x-show="loading" x-transition>loading...</span>
-<div id="content">
-  {{ content | safe }}
-</div>
+
+<script src="/static/app.js"></script>
 <script>
-document.body.addEventListener('htmx:beforeRequest', () => {
-  Alpine.evaluate(document.body, 'loading = true');
-});
-document.body.addEventListener('htmx:afterSwap', () => {
-  Alpine.evaluate(document.body, 'loading = false');
-});
 document.body.addEventListener('htmx:beforeSwap', function(evt) {
   if (evt.detail.xhr.responseURL && evt.detail.xhr.responseURL.includes('/auth/login')) {
     window.location.href = '/auth/login';

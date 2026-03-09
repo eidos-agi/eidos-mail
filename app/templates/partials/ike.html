@@ -1,35 +1,26 @@
-<div class="ike-matrix">
-  <div style="display:flex;justify-content:space-between;grid-column:1/-1;padding:0 0.4rem;">
-    <span class="ike-axes"></span>
-    <span class="ike-axis-label">urgency →</span>
-    <span class="ike-axes"></span>
+<div class="ike-grid">
+  <div class="ike-card{% if ike_quadrant == 'do' %} selected{% endif %}"
+    hx-get="/inbox?folder={{ active_folder }}&ike=do" hx-target="#content" hx-swap="innerHTML">
+    <div class="q-label" style="color:var(--red);">DO FIRST</div>
+    <div class="q-count" style="color:var(--red);">{{ counts.do }}</div>
+    <div class="q-desc">urgent + important</div>
   </div>
-  <div class="ike-quadrant{% if quadrant == 'do' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=do" hx-target="#content" hx-swap="innerHTML"
-    style="border-right:1px solid var(--border);border-bottom:1px solid var(--border);">
-    <div class="ike-q-label" style="color:#ef5350;">DO FIRST</div>
-    <div class="ike-q-count" style="color:#ef5350;">{{ counts.do }}</div>
-    <div style="font-size:0.65rem;color:var(--muted);">urgent + important</div>
+  <div class="ike-card{% if ike_quadrant == 'schedule' %} selected{% endif %}"
+    hx-get="/inbox?folder={{ active_folder }}&ike=schedule" hx-target="#content" hx-swap="innerHTML">
+    <div class="q-label" style="color:var(--green);">SCHEDULE</div>
+    <div class="q-count" style="color:var(--green);">{{ counts.schedule }}</div>
+    <div class="q-desc">not urgent + important</div>
   </div>
-  <div class="ike-quadrant{% if quadrant == 'schedule' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=schedule" hx-target="#content" hx-swap="innerHTML"
-    style="border-bottom:1px solid var(--border);">
-    <div class="ike-q-label" style="color:#4caf50;">SCHEDULE</div>
-    <div class="ike-q-count" style="color:#4caf50;">{{ counts.schedule }}</div>
-    <div style="font-size:0.65rem;color:var(--muted);">not urgent + important</div>
+  <div class="ike-card{% if ike_quadrant == 'delegate' %} selected{% endif %}"
+    hx-get="/inbox?folder={{ active_folder }}&ike=delegate" hx-target="#content" hx-swap="innerHTML">
+    <div class="q-label" style="color:var(--orange);">DELEGATE</div>
+    <div class="q-count" style="color:var(--orange);">{{ counts.delegate }}</div>
+    <div class="q-desc">urgent + not important</div>
   </div>
-  <div class="ike-quadrant{% if quadrant == 'delegate' %} selected{% endif %}"
-    hx-get="/inbox?folder={{ active_folder }}&ike=delegate" hx-target="#content" hx-swap="innerHTML"
-    style="border-right:1px solid var(--border);">
-    <div class="ike-q-label" style="color:#ff9800;">DELEGATE</div>
-    <div class="ike-q-count" style="color:#ff9800;">{{ counts.delegate }}</div>
-    <div style="font-size:0.65rem;color:var(--muted);">urgent + not important</div>
-  </div>
-  <div class="ike-quadrant{% if quadrant == 'eliminate' %} selected{% endif %}"
+  <div class="ike-card{% if ike_quadrant == 'eliminate' %} selected{% endif %}"
     hx-get="/inbox?folder={{ active_folder }}&ike=eliminate" hx-target="#content" hx-swap="innerHTML">
-    <div class="ike-q-label" style="color:var(--muted);">ELIMINATE</div>
-    <div class="ike-q-count" style="color:var(--muted);">{{ counts.eliminate }}</div>
-    <div style="font-size:0.65rem;color:var(--muted);">not urgent + not important</div>
+    <div class="q-label" style="color:var(--muted);">ELIMINATE</div>
+    <div class="q-count" style="color:var(--muted);">{{ counts.eliminate }}</div>
+    <div class="q-desc">not urgent + not important</div>
   </div>
 </div>
-<div class="ike-axis-label" style="margin-bottom:0.5rem;">↑ priority</div>

@@ -1,11 +1,16 @@
-<div x-data="{ searching: false }">
-  <div class="search-bar">
-    <input type="text" name="q" id="search-input" placeholder="semantic search..."
-      hx-get="/search/results" hx-target="#search-results" hx-trigger="keyup changed delay:400ms"
-      hx-include="this"
+<div class="search-wrap" x-data="{ searching: false }">
+  <div class="search-input-wrap">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input class="search-input" type="text" name="q" placeholder="Search emails..."
+      hx-get="/search/results" hx-target="#search-results" hx-trigger="keyup changed delay:300ms"
+      hx-include="this" hx-indicator="#search-spinner"
       @htmx:before-request.camel="searching = true"
-      @htmx:after-swap.camel="searching = false" />
-    <span class="loading-indicator" x-show="searching" x-cloak x-transition>searching...</span>
+      @htmx:after-swap.camel="searching = false"
+      autofocus>
   </div>
-  <div id="search-results"></div>
+  <div class="search-hint">
+    <span x-show="searching" x-cloak><span class="loading-spinner"></span> Searching...</span>
+    <span x-show="!searching">Semantic search — finds emails by meaning, not just keywords</span>
+  </div>
+  <div id="search-results" style="margin-top:0.5rem;"></div>
 </div>

@@ -1,36 +1,44 @@
-<div x-data="{ sending: false, saving: false }">
+<div class="compose-form" x-data="{ sending: false, saving: false }">
   <form hx-post="/send" hx-target="#send-result" hx-swap="innerHTML"
     @htmx:before-request.camel="sending = true"
     @htmx:after-swap.camel="sending = false">
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-    <div class="form-group"><label>To</label><input type="text" name="to" required id="compose-to" value="{{ draft_to or '' }}"></div>
-    <div class="form-group"><label>Subject</label><input type="text" name="subject" id="compose-subject" value="{{ draft_subject or '' }}"></div>
-    <div class="form-group"><label>Body</label><textarea name="body" rows="8" id="compose-body">{{ draft_body or '' }}</textarea></div>
     {% if draft_id %}<input type="hidden" name="draft_id" value="{{ draft_id }}">{% endif %}
-    <div style="display:flex;gap:0.5rem;align-items:center;">
-      <button type="submit" :disabled="sending">
-        <span x-show="!sending">send</span>
-        <span x-show="sending" x-cloak>sending...</span>
+    <div class="form-field">
+      <label>To</label>
+      <input class="form-input" type="email" name="to" required value="{{ draft_to or '' }}" placeholder="recipient@example.com">
+    </div>
+    <div class="form-field">
+      <label>Subject</label>
+      <input class="form-input" type="text" name="subject" value="{{ draft_subject or '' }}" placeholder="Subject">
+    </div>
+    <div class="form-field">
+      <label>Message</label>
+      <textarea class="form-input" name="body" rows="10" placeholder="Write your message...">{{ draft_body or '' }}</textarea>
+    </div>
+    <div class="compose-actions">
+      <button type="submit" class="btn btn-primary" :disabled="sending">
+        <span x-show="!sending">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          Send
+        </span>
+        <span x-show="sending" x-cloak><span class="loading-spinner"></span> Sending...</span>
       </button>
-      <button type="button" class="sync-btn" :disabled="saving"
+      <button type="button" class="btn btn-secondary" :disabled="saving"
         @click="saving = true;
+          const form = $el.closest('form');
           fetch('/draft', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: new URLSearchParams({
-              _csrf: '{{ csrf_token }}',
-              to: document.getElementById('compose-to').value,
-              subject: document.getElementById('compose-subject').value,
-              body: document.getElementById('compose-body').value
-            })
+            body: new URLSearchParams(new FormData(form))
           }).then(r => r.text()).then(html => {
             document.getElementById('send-result').innerHTML = html;
             saving = false;
           }).catch(() => { saving = false; })">
-        <span x-show="!saving">save draft</span>
-        <span x-show="saving" x-cloak>saving...</span>
+        <span x-show="!saving">Save Draft</span>
+        <span x-show="saving" x-cloak><span class="loading-spinner"></span></span>
       </button>
     </div>
   </form>
-  <div id="send-result"></div>
+  <div id="send-result" style="margin-top:0.5rem;"></div>
 </div>

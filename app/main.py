@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Query, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from markupsafe import escape
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="eidos-mail", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET or "dev-secret-change-me", https_only=False)
 app.include_router(auth_router)
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 _env = templates.env
 
@@ -301,11 +303,43 @@ async def search_results(
 async def compose_page(
     request: Request,
     draft_id: int | None = Query(None),
+    reply_to: int | None = Query(None),
+    forward: int | None = Query(None),
     _email: str = Depends(require_web_auth),
 ):
     draft_to = draft_subject = draft_body = ""
-    if draft_id:
-        pool = await get_pool()
+
+    pool = await get_pool()
+
+    if reply_to:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT from_addr, subject, body_text FROM emails "
+                "WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+                reply_to, _email,
+            )
+        if row:
+            draft_to = row["from_addr"] or ""
+            subj = row["subject"] or ""
+            draft_subject = subj if subj.lower().startswith("re:") else f"Re: {subj}"
+            original = (row["body_text"] or "")[:500]
+            draft_body = f"\n\n---\n> {original}"
+
+    elif forward:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT from_addr, subject, body_text, date_sent FROM emails "
+                "WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+                forward, _email,
+            )
+        if row:
+            subj = row["subject"] or ""
+            draft_subject = subj if subj.lower().startswith("fwd:") else f"Fwd: {subj}"
+            date_str = str(row["date_sent"])[:16] if row["date_sent"] else ""
+            original = row["body_text"] or ""
+            draft_body = f"\n\n------- Forwarded message -------\nFrom: {row['from_addr']}\nDate: {date_str}\nSubject: {row['subject']}\n\n{original}"
+
+    elif draft_id:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT to_addrs, subject, body_text FROM emails "
@@ -352,6 +386,34 @@ async def mark_all_read(
             email, folder,
         )
     return HTMLResponse(await _inbox_html(email, folder=folder))
+
+
+@app.post("/mark-read", response_class=HTMLResponse)
+async def mark_read(request: Request, email: str = Depends(require_web_auth)):
+    """Mark specific emails as read (from swipe/quick actions)."""
+    data = await request.json()
+    ids = data.get("ids", [])
+    if not ids:
+        return HTMLResponse("")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE emails SET is_read = $1 WHERE id = ANY($2::int[]) AND owner_email = $3 AND deleted_at IS NULL",
+            data.get("read", True), ids, email,
+        )
+    return HTMLResponse("ok")
+
+
+@app.post("/delete/{email_id}", response_class=HTMLResponse)
+async def delete_email_web(email_id: int, email: str = Depends(require_web_auth)):
+    """Soft-delete from web UI (swipe/quick actions)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE emails SET deleted_at = NOW() WHERE id = $1 AND owner_email = $2 AND deleted_at IS NULL",
+            email_id, email,
+        )
+    return HTMLResponse("ok")
 
 
 @app.post("/draft", response_class=HTMLResponse)

@@ -1,9 +1,20 @@
-<div class="email-row{% if not e.is_read %} unread{% endif %}" hx-get="/email/{{ e.id }}" hx-target="#detail-{{ e.id }}" hx-swap="innerHTML">
-  <div class="email-from">{% if not e.is_read %}<span class="unread-dot"></span>{% endif %}{{ e.from_addr }}</div>
-  <div class="email-subject">{{ e.subject }}</div>
-  <div style="display:flex;justify-content:space-between;">
-    <span class="email-snippet">{{ e.snippet }}</span>
-    <span class="email-date">{{ e.date_sent }}</span>
+<div class="email-item{% if not e.is_read %} unread{% endif %}" data-swipe data-id="{{ e.id }}">
+  <!-- Swipe backgrounds -->
+  <div class="swipe-bg left">&#10003; Read</div>
+  <div class="swipe-bg right">&#128465; Delete</div>
+  <!-- Main content -->
+  <div class="email-inner" style="display:flex;align-items:flex-start;gap:0.75rem;width:100%;position:relative;z-index:1;background:inherit;"
+    hx-get="/email/{{ e.id }}" hx-target="#detail-{{ e.id }}" hx-swap="innerHTML">
+    {% if not e.is_read %}<div class="unread-dot"></div>{% endif %}
+    <div class="avatar" data-from="{{ e.from_addr }}"></div>
+    <div class="email-body">
+      <div class="email-top">
+        <span class="email-from">{{ e.from_addr.split('<')[0].strip() or e.from_addr }}</span>
+        <span class="email-date">{{ e.date_sent }}</span>
+      </div>
+      <div class="email-subject">{{ e.subject }}</div>
+      <div class="email-snippet">{{ e.snippet }}</div>
+    </div>
   </div>
   <div id="detail-{{ e.id }}"></div>
 </div>

@@ -2,21 +2,18 @@
   <h2 class="diag-title">Infrastructure</h2>
 
   <div class="diag-card">
-    <div class="diag-label">Database</div>
-    <div class="diag-value">
-      <div>Pool: {{ db.pool_size }} connections (min={{ db.pool_min }}, max={{ db.pool_max }})</div>
-      <div>Free: {{ db.pool_free }}</div>
-    </div>
+    <div class="diag-label">Database Pool</div>
+    <div class="diag-value">{{ db.pool_size }} connections ({{ db.pool_free }} idle) &middot; min={{ db.pool_min }} max={{ db.pool_max }}</div>
   </div>
 
   <div class="diag-card">
     <div class="diag-label">Email Stats</div>
     <div class="diag-value">
-      <div>Total emails: {{ stats.total }}</div>
+      <div><strong>{{ stats.total }}</strong> total emails</div>
       {% for f in stats.folders %}
-      <div style="margin-left:1rem;">{{ f.folder }}: {{ f.count }}</div>
+      <div style="margin-left:1rem;color:var(--muted);">{{ f.folder }}: {{ f.count }}</div>
       {% endfor %}
-      <div>Vector coverage: {{ stats.vectors }} / {{ stats.total }} ({{ stats.vector_pct }}%)</div>
+      <div style="margin-top:0.3rem;">Vectors: {{ stats.vectors }} / {{ stats.total }} ({{ stats.vector_pct }}%)</div>
     </div>
   </div>
 
@@ -24,26 +21,21 @@
     <div class="diag-label">Mail Accounts</div>
     <div class="diag-value">
       {% for a in accounts %}
-      <div class="diag-folder-row">
-        {{ a.email }}
-        — <span style="color:{% if a.sync_status == 'idle' %}#4caf50{% elif a.sync_status == 'syncing' %}var(--accent){% else %}#ef5350{% endif %};">{{ a.sync_status }}</span>
-        — last sync: {{ a.last_sync or 'never' }}
-        {% if a.sync_error %}<span style="color:#ef5350;"> ({{ a.sync_error }})</span>{% endif %}
+      <div style="padding:0.15rem 0;">
+        {{ a.email }} &middot;
+        <span style="color:{% if a.sync_status == 'idle' %}var(--green){% elif a.sync_status == 'syncing' %}var(--accent){% else %}var(--red){% endif %};">{{ a.sync_status }}</span>
+        &middot; last: {{ a.last_sync or 'never' }}
+        {% if a.sync_error %}<span style="color:var(--red);"> ({{ a.sync_error }})</span>{% endif %}
       </div>
       {% endfor %}
-      {% if not accounts %}
-      <span style="color:var(--muted);">No accounts configured</span>
-      {% endif %}
+      {% if not accounts %}<span style="color:var(--muted);">No accounts</span>{% endif %}
     </div>
   </div>
 
   {% if railway %}
   <div class="diag-card">
     <div class="diag-label">Railway</div>
-    <div class="diag-value">
-      <div>Environment: {{ railway.environment or '—' }}</div>
-      <div>Service: {{ railway.service or '—' }}</div>
-    </div>
+    <div class="diag-value">{{ railway.environment or '—' }} &middot; {{ railway.service or '—' }}</div>
   </div>
   {% endif %}
 </div>

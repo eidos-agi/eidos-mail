@@ -1,6 +1,11 @@
+<div class="email-list">
 {% for e in emails %}
 {% include "partials/email_row.html" %}
 {% endfor %}
 {% if not emails %}
-<div style="color:var(--muted);padding:1rem;">No results.</div>
+<div class="empty-state">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  <p>No results found.</p>
+</div>
 {% endif %}
+</div>
