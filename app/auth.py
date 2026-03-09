@@ -160,15 +160,18 @@ async def require_web_auth(request: Request) -> str:
 
 
 async def require_api_auth(request: Request) -> str:
-    """Dependency for API routes. Returns email or raises HTTPException(401)."""
+    """Dependency for API routes. Returns 404 to hide endpoint existence."""
     dev_user = os.environ.get("DEV_USER")
     if dev_user:
         return dev_user
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token")
+        raise HTTPException(status_code=404, detail="Not Found")
     token = auth_header[7:]
-    return await _validate_bearer(token)
+    try:
+        return await _validate_bearer(token)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 # ---------------------------------------------------------------------------

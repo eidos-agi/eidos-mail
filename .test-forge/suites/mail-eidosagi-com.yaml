@@ -170,15 +170,16 @@ steps:
   config:
     url: https://mail.eidosagi.com/api/emails?recent=10
     method: GET
-    expect_status: 401
-  why: "API routes return 401 JSON error (not 302 redirect) — different auth response for API consumers vs browsers"
+    expect_status: 404
+  why: "API routes return 404 to hide endpoint existence \u2014 secure by design"
 - name: API search requires auth and q param
   type: http
   config:
     url: https://mail.eidosagi.com/api/search?q=test
     method: GET
-    expect_status: 401
-  why: "API routes return 401 JSON error — auth enforced before query validation"
+    expect_status: 404
+  why: "API routes return 404 to hide endpoint existence \u2014 auth enforced before\
+    \ query validation"
 - name: POST /sync with correct method requires auth
   type: http
   config:
@@ -192,8 +193,8 @@ steps:
   config:
     url: https://mail.eidosagi.com/api/sync
     method: POST
-    expect_status: 401
-  why: "API sync endpoint \u2014 confirms write operations are auth-protected"
+    expect_status: 404
+  why: "API sync endpoint \u2014 returns 404 to hide existence, secure by design"
 - name: POST /send requires auth
   type: http
   config:
@@ -248,4 +249,85 @@ steps:
     expect_status: 302
   why: "Tests auth fires before path param validation \u2014 should redirect before\
     \ checking if email exists"
-updated_at: '2026-03-09T03:13:50Z'
+- name: auth login initiates OAuth redirect
+  type: http
+  config:
+    url: https://mail.eidosagi.com/auth/login
+    method: GET
+    expect_status: 302
+  why: Verify OAuth flow starts correctly with a redirect to the identity provider
+- name: auth callback without code handles gracefully
+  type: http
+  config:
+    url: https://mail.eidosagi.com/auth/callback
+    method: GET
+    expect_status: 302
+  why: Callback with no code/state should redirect, not crash
+- name: API emails requires auth (404)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails?recent=5
+    method: GET
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
+- name: API search requires auth and validates q param
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/search?q=test
+    method: GET
+    expect_status: 404
+  why: "API returns 404 to hide endpoint existence \u2014 auth before validation"
+- name: API search missing required q param
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/search
+    method: GET
+    expect_status: 404
+  why: "Auth fires first (404), so missing q param is never reached without auth"
+- name: POST /api/send requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/send
+    method: POST
+    headers:
+      Content-Type: application/json
+    body: '{}'
+    expect_status: 404
+  why: "Send endpoint returns 404 without auth \u2014 hides existence, secure by design"
+- name: POST /sync web endpoint requires auth (302)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/sync
+    method: POST
+    expect_status: 302
+  why: Web POST endpoints should redirect to login when unauthenticated
+- name: GET on POST-only /sync returns 405
+  type: http
+  config:
+    url: https://mail.eidosagi.com/sync
+    method: GET
+    expect_status: 405
+  why: "Spec shows /sync is POST-only \u2014 GET should return Method Not Allowed"
+- name: openapi.json publicly accessible
+  type: http
+  config:
+    url: https://mail.eidosagi.com/openapi.json
+    method: GET
+    expect_status: 200
+    expect_body_contains: eidos-mail
+  why: Confirm OpenAPI spec is served and contains expected API title
+- name: API email detail with fake ID requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/99999
+    method: GET
+    expect_status: 404
+  why: "Auth returns 404 before checking if email exists \u2014 hides endpoint existence"
+- name: infra dashboard requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/infra
+    method: GET
+    expect_status: 302
+  why: Infra/diagnostics pages should not be publicly accessible
+updated_at: '2026-03-09T03:54:44Z'
