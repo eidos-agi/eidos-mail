@@ -3,235 +3,12 @@ target: https://mail.eidosagi.com
 target_type: api
 created_at: '2026-03-08T12:24:41Z'
 steps:
+# --- Health & Public ---
 - name: health endpoint
   type: health
   config:
     url: https://mail.eidosagi.com/health
-  why: service is alive
-- name: GET /auth/login
-  type: http
-  config:
-    url: https://mail.eidosagi.com/auth/login
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /auth/callback
-  type: http
-  config:
-    url: https://mail.eidosagi.com/auth/callback
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /auth/logout
-  type: http
-  config:
-    url: https://mail.eidosagi.com/auth/logout
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /health
-  type: http
-  config:
-    url: https://mail.eidosagi.com/health
-    method: GET
-    expect_status: 200
-  why: public endpoint responds
-- name: GET /
-  type: http
-  config:
-    url: https://mail.eidosagi.com/
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /inbox
-  type: http
-  config:
-    url: https://mail.eidosagi.com/inbox
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /email/{email_id}
-  type: http
-  config:
-    url: https://mail.eidosagi.com/email/{email_id}
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /search
-  type: http
-  config:
-    url: https://mail.eidosagi.com/search
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /search/results
-  type: http
-  config:
-    url: https://mail.eidosagi.com/search/results
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /compose
-  type: http
-  config:
-    url: https://mail.eidosagi.com/compose
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /sync
-  type: http
-  config:
-    url: https://mail.eidosagi.com/sync
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /mark-all-read
-  type: http
-  config:
-    url: https://mail.eidosagi.com/mark-all-read
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /draft
-  type: http
-  config:
-    url: https://mail.eidosagi.com/draft
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /send
-  type: http
-  config:
-    url: https://mail.eidosagi.com/send
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: GET /imap
-  type: http
-  config:
-    url: https://mail.eidosagi.com/imap
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: openapi spec available
-  type: http
-  config:
-    url: https://mail.eidosagi.com/openapi.json
-  why: API is self-documenting
-- name: 404 on unknown path
-  type: http
-  config:
-    url: https://mail.eidosagi.com/__nonexistent__
-    expect_status: 404
-  why: error handling works
-- name: auth rejects anonymous
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api
-    expect_status: 404
-  why: "unauthenticated requests get 404 (hides endpoint existence \u2014 secure by\
-    \ design)"
-- name: health endpoint returns ok with email count
-  type: health
-  config:
-    url: https://mail.eidosagi.com/health
-  why: Baseline connectivity and confirms service is up with email count in response
-- name: root redirects unauthenticated to login
-  type: http
-  config:
-    url: https://mail.eidosagi.com/
-    method: GET
-    expect_status: 302
-  why: "Confirms auth guard on root \u2014 unauthenticated users should redirect to\
-    \ login"
-- name: auth login initiates OAuth flow
-  type: http
-  config:
-    url: https://mail.eidosagi.com/auth/login
-    method: GET
-    expect_status: 302
-  why: "Login should redirect to OAuth provider \u2014 302 is expected behavior"
-- name: auth callback without code rejects gracefully
-  type: http
-  config:
-    url: https://mail.eidosagi.com/auth/callback
-    method: GET
-    expect_status: 302
-  why: Callback without OAuth code/state should redirect, not crash
-- name: inbox requires auth (302 redirect)
-  type: http
-  config:
-    url: https://mail.eidosagi.com/inbox
-    method: GET
-    expect_status: 302
-  why: "Protected page \u2014 confirms auth middleware is active on main UI routes"
-- name: API emails endpoint requires auth
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/emails?recent=10
-    method: GET
-    expect_status: 404
-  why: "API routes return 404 to hide endpoint existence \u2014 secure by design"
-- name: API search requires auth and q param
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/search?q=test
-    method: GET
-    expect_status: 404
-  why: "API routes return 404 to hide endpoint existence \u2014 auth enforced before\
-    \ query validation"
-- name: POST /sync with correct method requires auth
-  type: http
-  config:
-    url: https://mail.eidosagi.com/sync
-    method: POST
-    expect_status: 302
-  why: "Prior suite used GET (wrong method). POST is correct per spec \u2014 should\
-    \ still require auth"
-- name: POST /api/sync requires auth
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/sync
-    method: POST
-    expect_status: 404
-  why: "API sync endpoint \u2014 returns 404 to hide existence, secure by design"
-- name: POST /send requires auth
-  type: http
-  config:
-    url: https://mail.eidosagi.com/send
-    method: POST
-    headers:
-      Content-Type: application/json
-    body: '{}'
-    expect_status: 302
-  why: 'Critical: send email must be auth-protected. Using POST (correct method, prior
-    suite used GET)'
-- name: POST /mark-all-read with correct method
-  type: http
-  config:
-    url: https://mail.eidosagi.com/mark-all-read
-    method: POST
-    expect_status: 302
-  why: "Destructive action (marks all read) \u2014 must require auth. Prior suite\
-    \ used GET (wrong method)"
-- name: POST /draft save requires auth
-  type: http
-  config:
-    url: https://mail.eidosagi.com/draft
-    method: POST
-    headers:
-      Content-Type: application/json
-    body: '{}'
-    expect_status: 302
-  why: "Draft save is a write operation \u2014 auth required. Prior suite used GET"
-- name: unknown path returns 404
-  type: http
-  config:
-    url: https://mail.eidosagi.com/__nonexistent_path_xyz__
-    method: GET
-    expect_status: 404
-  why: "Confirms proper 404 handling \u2014 app doesn't catch-all redirect unknown\
-    \ paths"
+  why: service is alive and reports email count
 - name: openapi.json is publicly accessible
   type: http
   config:
@@ -239,165 +16,176 @@ steps:
     method: GET
     expect_status: 200
     expect_body_contains: eidos-mail
-  why: "OpenAPI spec should be public for documentation \u2014 verifies it contains\
-    \ expected API title"
-- name: email detail with fake ID requires auth
+  why: OpenAPI spec should be public for documentation
+- name: unknown path returns 404
   type: http
   config:
-    url: https://mail.eidosagi.com/email/99999
+    url: https://mail.eidosagi.com/__nonexistent_path_xyz__
     method: GET
-    expect_status: 302
-  why: "Tests auth fires before path param validation \u2014 should redirect before\
-    \ checking if email exists"
+    expect_status: 404
+  why: proper 404 handling, not catch-all redirect
+
+# --- Auth flow ---
 - name: auth login initiates OAuth redirect
   type: http
   config:
     url: https://mail.eidosagi.com/auth/login
     method: GET
     expect_status: 302
-  why: Verify OAuth flow starts correctly with a redirect to the identity provider
+  why: login should redirect to OAuth provider
 - name: auth callback without code handles gracefully
   type: http
   config:
     url: https://mail.eidosagi.com/auth/callback
     method: GET
     expect_status: 302
-  why: Callback with no code/state should redirect, not crash
-- name: API emails requires auth (404)
+  why: callback with no code/state should redirect, not crash
+- name: auth logout redirects
   type: http
   config:
-    url: https://mail.eidosagi.com/api/emails?recent=5
+    url: https://mail.eidosagi.com/auth/logout
     method: GET
-    expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
-- name: API search requires auth and validates q param
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/search?q=test
-    method: GET
-    expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 auth before validation"
-- name: API search missing required q param
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/search
-    method: GET
-    expect_status: 404
-  why: Auth fires first (404), so missing q param is never reached without auth
-- name: POST /api/send requires auth
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/send
-    method: POST
-    headers:
-      Content-Type: application/json
-    body: '{}'
-    expect_status: 404
-  why: "Send endpoint returns 404 without auth \u2014 hides existence, secure by design"
-- name: POST /sync web endpoint requires auth (302)
-  type: http
-  config:
-    url: https://mail.eidosagi.com/sync
-    method: POST
     expect_status: 302
-  why: Web POST endpoints should redirect to login when unauthenticated
-- name: GET on POST-only /sync returns 405
+  why: logout should redirect
+
+# --- Web UI routes (302 redirect to login) ---
+- name: root redirects unauthenticated to login
   type: http
   config:
-    url: https://mail.eidosagi.com/sync
+    url: https://mail.eidosagi.com/
     method: GET
-    expect_status: 405
-  why: "Spec shows /sync is POST-only \u2014 GET should return Method Not Allowed"
-- name: openapi.json publicly accessible
+    expect_status: 302
+  why: auth guard on root
+- name: inbox requires auth
   type: http
   config:
-    url: https://mail.eidosagi.com/openapi.json
+    url: https://mail.eidosagi.com/inbox
     method: GET
-    expect_status: 200
-    expect_body_contains: eidos-mail
-  why: Confirm OpenAPI spec is served and contains expected API title
-- name: API email detail with fake ID requires auth
+    expect_status: 302
+  why: protected page redirects to login
+- name: email detail requires auth
   type: http
   config:
-    url: https://mail.eidosagi.com/api/emails/99999
+    url: https://mail.eidosagi.com/email/99999
     method: GET
-    expect_status: 404
-  why: "Auth returns 404 before checking if email exists \u2014 hides endpoint existence"
+    expect_status: 302
+  why: auth fires before path param validation
+- name: search requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/search
+    method: GET
+    expect_status: 302
+  why: protected page redirects to login
+- name: compose requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/compose
+    method: GET
+    expect_status: 302
+  why: protected page redirects to login
+- name: imap requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/imap
+    method: GET
+    expect_status: 302
+  why: protected page redirects to login
 - name: infra dashboard requires auth
   type: http
   config:
     url: https://mail.eidosagi.com/infra
     method: GET
     expect_status: 302
-  why: Infra/diagnostics pages should not be publicly accessible
-- name: POST /sync
+  why: diagnostics pages must not be public
+
+# --- Web UI POST routes (302 redirect to login) ---
+- name: POST /sync requires auth
   type: http
   config:
     url: https://mail.eidosagi.com/sync
     method: POST
     expect_status: 302
-  why: "POST endpoint \u2014 expects auth redirect without token"
-- name: POST /mark-all-read
-  type: http
-  config:
-    url: https://mail.eidosagi.com/mark-all-read
-    method: POST
-    expect_status: 302
-  why: "POST endpoint \u2014 expects auth redirect without token"
-- name: POST /draft
-  type: http
-  config:
-    url: https://mail.eidosagi.com/draft
-    method: POST
-    expect_status: 302
-  why: "POST endpoint \u2014 expects auth redirect without token"
-- name: POST /send
+  why: POST is correct method per spec, still requires auth
+- name: POST /send requires auth
   type: http
   config:
     url: https://mail.eidosagi.com/send
     method: POST
     expect_status: 302
-  why: "POST endpoint \u2014 expects auth redirect without token"
-- name: GET /infra
+  why: send email must be auth-protected
+- name: POST /mark-all-read requires auth
   type: http
   config:
-    url: https://mail.eidosagi.com/infra
-    method: GET
-    expect_status: 302
-  why: redirects to login (auth-protected)
-- name: POST /api/sync
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/sync
+    url: https://mail.eidosagi.com/mark-all-read
     method: POST
+    expect_status: 302
+  why: destructive action must require auth
+- name: POST /draft requires auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/draft
+    method: POST
+    expect_status: 302
+  why: write operation requires auth
+
+# --- Method enforcement ---
+- name: GET on POST-only /sync returns 405
+  type: http
+  config:
+    url: https://mail.eidosagi.com/sync
+    method: GET
+    expect_status: 405
+  why: spec shows /sync is POST-only
+
+# --- API routes (404 to hide existence — secure by design) ---
+- name: API base path returns 404
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api
+    method: GET
     expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
-- name: GET /api/search
+  why: unauthenticated requests get 404, hides endpoint existence
+- name: API emails returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails?recent=10
+    method: GET
+    expect_status: 404
+  why: API returns 404 to hide endpoint existence
+- name: API search returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/search?q=test
+    method: GET
+    expect_status: 404
+  why: API returns 404 to hide endpoint existence
+- name: API search without q returns 404
   type: http
   config:
     url: https://mail.eidosagi.com/api/search
     method: GET
     expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
-- name: GET /api/emails
+  why: auth fires first (404), missing q param never reached
+- name: POST /api/sync returns 404 without auth
   type: http
   config:
-    url: https://mail.eidosagi.com/api/emails
-    method: GET
+    url: https://mail.eidosagi.com/api/sync
+    method: POST
     expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
-- name: GET /api/emails/{email_id}
-  type: http
-  config:
-    url: https://mail.eidosagi.com/api/emails/{email_id}
-    method: GET
-    expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
-- name: POST /api/send
+  why: API write endpoint hidden without auth
+- name: POST /api/send returns 404 without auth
   type: http
   config:
     url: https://mail.eidosagi.com/api/send
     method: POST
     expect_status: 404
-  why: "API returns 404 to hide endpoint existence \u2014 secure by design"
-updated_at: '2026-03-09T04:18:35Z'
+  why: critical endpoint hidden without auth
+- name: API email detail returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/99999
+    method: GET
+    expect_status: 404
+  why: auth returns 404 before checking if email exists
+updated_at: '2026-03-09T09:21:00Z'
