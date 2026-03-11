@@ -8,14 +8,13 @@ steps:
   config:
     url: https://mail.eidosagi.com/health
   why: service is alive and reports email count
-- name: openapi.json is publicly accessible
+- name: openapi.json disabled in production (security)
   type: http
   config:
     url: https://mail.eidosagi.com/openapi.json
     method: GET
-    expect_status: 200
-    expect_body_contains: eidos-mail
-  why: OpenAPI spec should be public for documentation
+    expect_status: 404
+  why: OpenAPI spec disabled in production to prevent endpoint enumeration
 - name: unknown path returns 404
   type: http
   config:
@@ -385,16 +384,13 @@ steps:
     expect_status: 302
   why: Auth should reject before query processing. If 500, the app crashes on large
     input instead of bouncing to login.
-- name: FastAPI /docs exposes interactive Swagger UI (info leakage)
+- name: FastAPI /docs disabled in production (security fix verified)
   type: http
   config:
     url: https://mail.eidosagi.com/docs
     method: GET
-    expect_status: 200
-    expect_body_contains: swagger-ui
-  why: "/docs returned 200 last round \u2014 confirm it serves full Swagger UI with\
-    \ try-it-out capability, which lets attackers enumerate and test all endpoints\
-    \ interactively"
+    expect_status: 404
+  why: "Swagger UI was exposed in production — now disabled via docs_url=None. Verify it stays off."
 - name: 'sensitive path probe: /docs/oauth2-redirect'
   type: http
   config:
@@ -474,4 +470,69 @@ steps:
     expect_status: 404
   why: "SQL injection in path param for destructive operation \u2014 should get 404\
     \ (hidden) not 500 (injection parsed)"
-updated_at: '2026-03-09T06:13:17Z'
+- name: "Auth callback with crafted code \u2014 error handling"
+  type: http
+  config:
+    url: https://mail.eidosagi.com/auth/callback?code=INJECTED_CODE&state=forged_state
+    method: GET
+    expect_status: 302
+  why: Malicious code/state params should fail gracefully (redirect to login), not
+    500 or leak stack traces
+- name: Unknown path returns proper 404
+  type: http
+  config:
+    url: https://mail.eidosagi.com/__does_not_exist__
+    method: GET
+    expect_status: 404
+  why: "Baseline \u2014 confirm 404 handling works and doesn't leak framework details\
+    \ in response body"
+- name: POST /api/emails/1/undelete returns 404 without auth
+  type: http
+  config:
+    url: https://mail.eidosagi.com/api/emails/1/undelete
+    method: POST
+    expect_status: 404
+  why: undelete endpoint hidden without auth — same as delete
+- name: POST /undelete/1 requires auth (web route)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/undelete/1
+    method: POST
+    expect_status: 302
+  why: web undelete route requires session auth
+- name: POST /delete/1 requires auth (web route)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/delete/1
+    method: POST
+    expect_status: 302
+  why: web delete route requires session auth
+- name: POST /mark-read requires auth (web route)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/mark-read
+    method: POST
+    expect_status: 302
+  why: web mark-read route requires session auth
+- name: Trash folder accessible (requires auth)
+  type: http
+  config:
+    url: https://mail.eidosagi.com/inbox?folder=Trash
+    method: GET
+    expect_status: 302
+  why: trash folder route requires auth like all inbox views
+- name: static app.css accessible
+  type: http
+  config:
+    url: https://mail.eidosagi.com/static/app.css
+    method: GET
+    expect_status: 200
+  why: CSS must be public for the app to render
+- name: static app.js accessible
+  type: http
+  config:
+    url: https://mail.eidosagi.com/static/app.js
+    method: GET
+    expect_status: 200
+  why: JS must be public for the app to function
+updated_at: '2026-03-09T12:25:00Z'
